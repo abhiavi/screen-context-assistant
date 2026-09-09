@@ -81,6 +81,25 @@ Window {
             root.hasSomethingToShow = true
             character.runJavaScript("setAvatarState('attentive')")
         }
+        // A single layer-shell surface lives on exactly one output at a
+        // time (the protocol has no "spans multiple monitors" concept) -
+        // "roam across all three monitors" means relocate to whichever one
+        // has the Operator's focused window, not slide across the gap.
+        function onActiveScreenChanged(index) {
+            if (index < 0 || index >= Qt.application.screens.length) return
+            var s = Qt.application.screens[index]
+            if (s === root.screen) return
+            // A layer-shell surface's output binding is fixed at creation
+            // time - changing LayerShellQt.Window.screen on an already-
+            // mapped window is a silent no-op (confirmed live: the QML
+            // property updated correctly but the surface stayed put).
+            // Hiding and re-showing forces Qt to tear down and recreate
+            // the platform surface on the new output.
+            root.visible = false
+            root.screen = s
+            LayerShellQt.Window.screen = s
+            root.visible = true
+        }
     }
 
     // --- ask bar (always visible - "a place to put the question") ------
@@ -94,7 +113,7 @@ Window {
         Rectangle {
             anchors.fill: parent
             radius: 20
-            color: Qt.rgba(0.11, 0.09, 0.16, 0.55)
+            color: Qt.rgba(0.08, 0.07, 0.12, 0.90)
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.18)
             layer.enabled: true
@@ -169,14 +188,19 @@ Window {
             id: glass
             anchors.fill: parent
             radius: 20
-            color: Qt.rgba(0.11, 0.09, 0.16, 0.55)
+            color: Qt.rgba(0.08, 0.07, 0.12, 0.92)
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.18)
 
+            // Real desktop content (terminal text, etc.) behind the panel was
+            // bleeding through and visually merging with our own text at the
+            // old alpha (~0.55) - confirmed live via screenshot, not just a
+            // hunch. No true blur-behind is available here (see README), so
+            // legibility wins over "true glass": pushed near-opaque.
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.10) }
-                GradientStop { position: 0.35; color: Qt.rgba(0.11, 0.09, 0.16, 0.55) }
-                GradientStop { position: 1.0; color: Qt.rgba(0.05, 0.04, 0.09, 0.62) }
+                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.08) }
+                GradientStop { position: 0.35; color: Qt.rgba(0.08, 0.07, 0.12, 0.92) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.04, 0.03, 0.07, 0.95) }
             }
 
             layer.enabled: true

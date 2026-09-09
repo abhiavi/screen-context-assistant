@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ DEFAULT_CONFIG = {
     "idle_poll_seconds": 5,
     "idle_threshold_seconds": 300,
     "vault_write_interval_seconds": 900,
+    "screen_poll_seconds": 4,
 }
 
 
@@ -85,12 +87,40 @@ class IdleWatcher:
         return returned
 
 
+def _active_window_screen_index() -> int | None:
+    """Which QScreen (index into QGuiApplication.screens()) the currently
+    focused window is on - used to move the avatar's layer-shell surface to
+    whichever monitor the Operator is actually working on. A single
+    layer-shell surface belongs to exactly one wl_output at a time (the
+    protocol has no notion of a surface spanning multiple physical
+    monitors), so "roam across all three monitors" has to mean *relocate
+    to the active one*, not literally slide across the gap between
+    screens."""
+    try:
+        result = subprocess.run(
+            ["kdotool", "getactivewindow", "getwindowgeometry"],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+        pos_line = next(line for line in result.stdout.splitlines() if "Position" in line)
+        x_str, y_str = pos_line.split(":", 1)[1].strip().split(",")
+        x, y = int(x_str), int(y_str)
+    except (subprocess.SubprocessError, OSError, StopIteration, ValueError):
+        return None
+
+    for index, screen in enumerate(QGuiApplication.screens()):
+        geo = screen.geometry()
+        if geo.contains(x + 10, y + 10):
+            return index
+    return None
+
+
 class Backend(QObject):
     recallReady = Signal(str, str, str)  # summary, track_id, app_name
     recallFailed = Signal(str)
     recallRequested = Signal()  # fires immediately, before the network reply lands
     answerReady = Signal(str)  # answer to a typed question
     answerFailed = Signal(str)
+    activeScreenChanged = Signal(int)  # index into Qt.application.screens
 
     def __init__(self, config: dict):
         super().__init__()
@@ -107,6 +137,19 @@ class Backend(QObject):
         self._vault_timer.setInterval(int(config["vault_write_interval_seconds"] * 1000))
         self._vault_timer.timeout.connect(lambda: self.requestRecall("", for_vault=True))
         self._vault_timer.start()
+
+        self._last_screen_index: int | None = None
+        self._screen_timer = QTimer(self)
+        self._screen_timer.setInterval(int(config.get("screen_poll_seconds", 4) * 1000))
+        self._screen_timer.timeout.connect(self._check_active_screen)
+        self._screen_timer.start()
+        self._check_active_screen()  # place it correctly on first launch too
+
+    def _check_active_screen(self) -> None:
+        index = _active_window_screen_index()
+        if index is not None and index != self._last_screen_index:
+            self._last_screen_index = index
+            self.activeScreenChanged.emit(index)
 
     def _check_idle_return(self) -> None:
         if self._idle.just_returned():
