@@ -1,0 +1,15 @@
+[Unit]
+Description=screen-context-assistant capture agent
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/screen-context-assistant
+ExecStart=%h/screen-context-assistant/.venv/bin/python -m app.capture.run
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONPATH=%h/screen-context-assistant
+
+[Install]
+WantedBy=graphical-session.target

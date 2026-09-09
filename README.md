@@ -31,10 +31,11 @@ infra-review resolutions).
   operates on OCR'd text; realistic (anti-aliased) screenshot text OCRs
   cleanly and redacts correctly, verified against fake AWS keys and emails
   actually being stripped before the point lands in Qdrant.
-- **Phase 1 (capture agent): scaffolded, not deployed.** `app/capture/agent.py`
-  needs a live Plasma/KWin D-Bus session — it cannot run on aws-01 (headless).
-  Deploy to `adraca-desktop` / `adraca-laptop` and wire
-  `KWin.ScreenShot2.CaptureActiveWindow` for the target host before use.
+- **Phase 1 (capture agent): done and deployed** to `adraca-desktop` and
+  `adraca-laptop` as a `systemd --user` service, verified end-to-end with
+  real captures flowing into Qdrant, correctly redacted. See
+  `deploy/` + `scripts/install_capture_agent.sh` and the KWin authorization
+  note below.
 - **Phase 4 (Obsidian sync writer): not started.** `pipeline.summarize_session`
   exists as the synthesis primitive; the poll-and-write-to-vault loop is not
   built yet.
@@ -72,6 +73,39 @@ python -m uvicorn app.api.rag_service:app --host $BIND_HOST --port 8089
 ```
 
 Retention (cron daily): `python scripts/retention_rollup.py`
+
+### Capture agent (desktop/laptop)
+
+```bash
+rsync -az --exclude='.venv' --exclude='.git' --exclude='__pycache__' \
+  --exclude='qdrant_storage' --exclude='pgdata' --exclude='.env' \
+  ./ desktop:~/screen-context-assistant/     # or laptop:
+ssh desktop
+cd ~/screen-context-assistant && bash scripts/install_capture_agent.sh
+```
+
+**KWin screenshot authorization**: `org.kde.KWin.ScreenShot2.CaptureActiveWindow`
+refuses unauthorized callers (`Error.NoAuthorized`). Verified live against
+KWin 6.7.4: the check matches the calling process's *resolved* executable
+(`/proc/pid/exe`, i.e. `readlink -f .venv/bin/python3` → the real system
+interpreter, not the venv symlink) against the `Exec=` of a `.desktop` file
+under `~/.local/share/applications/` that declares
+`X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2`. The install
+script generates this from `deploy/screen-context-capture.desktop.template`.
+Note this is a different path than what the systemd unit's `ExecStart` uses
+(the venv symlink, so Python's own venv detection via `pyvenv.cfg` still
+works) — see the comment in `scripts/install_capture_agent.sh`.
+
+**Window title / app name** come from `kdotool` (AUR), the KWin-Wayland
+equivalent of `xdotool`.
+
+**IMPORTANT — review before relying on this**: `scripts/generate_capture_config.py`
+writes `~/.config/screen-context-assistant/capture.json` with every
+discovered KDE Activity defaulted to *non-sensitive*. Nothing in this repo
+knows which of your Activities is the bug-bounty/credentials one — **you
+must edit `sensitive_tracks` in that file yourself** (both machines) before
+trusting it with high-risk tracks; plan §5's guarantee that sensitive tracks
+never leave the machine only holds for tracks you've actually flagged.
 
 ## Testing
 

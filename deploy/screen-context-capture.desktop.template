@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Screen Context Capture
+Exec=__PYTHON_EXEC__ -m app.capture.run
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2
+NoDisplay=true
