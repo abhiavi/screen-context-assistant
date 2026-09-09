@@ -1,137 +1,180 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Effects
+import QtWebEngine
 import org.kde.layershell as LayerShellQt
 
 Window {
     id: root
-    // Window must be large enough to contain the face AND the speech
-    // bubble - a layer-shell surface clips to its own declared size, a
-    // child positioned outside those bounds simply never renders (learned
-    // the hard way - verified via live screenshot on mini).
-    width: 320
-    height: 240
+    // A wide, short "lane" along one screen edge that the character roams
+    // within (smooth x-animation, no compositor protocol involved), plus
+    // headroom above for the glass recall panel. Layer-shell surfaces clip
+    // to their own declared size - anything must fit inside these bounds.
+    width: 560
+    height: 420
     visible: true
     color: "transparent"
     flags: Qt.FramelessWindowHint
 
     LayerShellQt.Window.layer: LayerShellQt.Window.LayerOverlay
-    LayerShellQt.Window.anchors: cornerAnchors[cornerIndex]
+    LayerShellQt.Window.anchors: LayerShellQt.Window.AnchorBottom | LayerShellQt.Window.AnchorRight
     LayerShellQt.Window.exclusionZone: -1
     LayerShellQt.Window.keyboardInteractivity: LayerShellQt.Window.KeyboardInteractivityNone
 
-    property int cornerIndex: 0
-    property var cornerAnchors: [
-        LayerShellQt.Window.AnchorBottom | LayerShellQt.Window.AnchorRight,
-        LayerShellQt.Window.AnchorBottom | LayerShellQt.Window.AnchorLeft,
-        LayerShellQt.Window.AnchorTop | LayerShellQt.Window.AnchorLeft,
-        LayerShellQt.Window.AnchorTop | LayerShellQt.Window.AnchorRight
-    ]
-    property bool dockRight: cornerIndex === 0 || cornerIndex === 3
-    property bool dockBottom: cornerIndex === 0 || cornerIndex === 1
+    readonly property int charSize: 240
+    property bool hasSomethingToShow: false
 
-    // --- avatar face -------------------------------------------------
-    Rectangle {
-        id: face
-        width: 84
-        height: 84
-        anchors.right: root.dockRight ? parent.right : undefined
-        anchors.left: root.dockRight ? undefined : parent.left
-        anchors.bottom: root.dockBottom ? parent.bottom : undefined
-        anchors.top: root.dockBottom ? undefined : parent.top
-        radius: width / 2
-        color: "#7c3aed"
-        border.color: "#ffffff"
-        border.width: 3
+    // --- roaming ---------------------------------------------------
+    property real charX: root.width - charSize - 20
+    Behavior on charX { NumberAnimation { duration: 2600; easing.type: Easing.InOutQuad } }
 
-        SequentialAnimation on scale {
-            loops: Animation.Infinite
-            NumberAnimation { to: 1.04; duration: 1400; easing.type: Easing.InOutSine }
-            NumberAnimation { to: 1.0; duration: 1400; easing.type: Easing.InOutSine }
+    Timer {
+        interval: 1000
+        running: true
+        repeat: true
+        property int tick: 0
+        onTriggered: {
+            tick++
+            // roam every ~25s while idle; skip while showing something (stay put, be findable)
+            if (tick % 25 === 0 && !root.hasSomethingToShow) {
+                var lane = root.width - root.charSize
+                root.charX = Math.max(0, Math.min(lane, Math.random() * lane))
+            }
+        }
+    }
+
+    // --- Live2D character -------------------------------------------
+    WebEngineView {
+        id: character
+        width: root.charSize
+        height: root.charSize
+        x: root.charX
+        y: root.height - root.charSize
+        backgroundColor: "transparent"
+        url: Qt.resolvedUrl("live2d_view.html")
+        onJavaScriptConsoleMessage: function(level, message, lineNumber, sourceID) {
+            console.log("JS[" + level + "] " + sourceID + ":" + lineNumber + " " + message)
+        }
+        onLoadingChanged: function(loadRequest) {
+            console.log("loading status=" + loadRequest.status + " url=" + loadRequest.url)
         }
 
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: -6
-            spacing: 14
-            Rectangle { width: 10; height: 10; radius: 5; color: "white" }
-            Rectangle { width: 10; height: 10; radius: 5; color: "white" }
-        }
-        Rectangle {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: 14
-            width: 26
-            height: 12
-            radius: 6
-            color: "white"
-        }
-
+        // WebEngineView eats mouse events by default; a plain MouseArea on
+        // top intercepts clicks/right-clicks for our own handling.
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: function(mouse) {
                 if (mouse.button === Qt.RightButton) {
-                    root.cornerIndex = (root.cornerIndex + 1) % 4
+                    var lane = root.width - root.charSize
+                    root.charX = Math.random() * lane
                 } else {
-                    bubble.show("...")
                     backend.requestRecall("")
                 }
             }
         }
     }
 
-    // --- speech bubble -------------------------------------------------
-    Rectangle {
-        id: bubble
+    Connections {
+        target: backend
+        function onRecallReady(summary, trackId, appName) {
+            panel.show(summary)
+        }
+        function onRecallFailed(error) {
+            panel.show("Couldn't reach the backend: " + error)
+        }
+    }
+
+    Component.onCompleted: {
+        // "attentive" fires the instant a recall is requested (before the
+        // network reply lands) so the character reacts immediately.
+        backend.recallRequested.connect(function() {
+            root.hasSomethingToShow = true
+            character.runJavaScript("setAvatarState('attentive')")
+        })
+    }
+
+    // --- glassmorphic recall panel -----------------------------------
+    // True KWin blur-behind needs the org_kde_kwin_blur_manager Wayland
+    // protocol, which has no QML/PySide6 binding available on this system
+    // (checked: no such type in org.kde.kwindowsystem's QML module, and
+    // pywayland - the only route to hand-roll the protocol - isn't
+    // installed). This simulates the glass look with layered translucency
+    // + a soft shadow instead of true see-through blur of the desktop.
+    Item {
+        id: panel
         visible: opacity > 0
         opacity: 0
-        width: 260
-        height: bubbleText.implicitHeight + 28
+        width: 360
+        height: panelText.implicitHeight + 44
+        x: Math.max(8, Math.min(root.width - width - 8, root.charX + root.charSize / 2 - width / 2))
+        y: root.height - root.charSize - height - 14
 
-        anchors.right: root.dockRight ? face.right : undefined
-        anchors.left: root.dockRight ? undefined : face.left
-        anchors.bottom: root.dockBottom ? face.top : undefined
-        anchors.top: root.dockBottom ? undefined : face.bottom
-        anchors.bottomMargin: root.dockBottom ? 10 : 0
-        anchors.topMargin: root.dockBottom ? 0 : 10
+        Behavior on opacity { NumberAnimation { duration: 260 } }
+        Behavior on x { NumberAnimation { duration: 2600; easing.type: Easing.InOutQuad } }
 
-        radius: 14
-        color: "#1e1b2e"
-        border.color: "#7c3aed"
-        border.width: 2
+        Rectangle {
+            id: glass
+            anchors.fill: parent
+            radius: 20
+            color: Qt.rgba(0.11, 0.09, 0.16, 0.55)
+            border.width: 1
+            border.color: Qt.rgba(1, 1, 1, 0.18)
 
-        Behavior on opacity { NumberAnimation { duration: 220 } }
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.10) }
+                GradientStop { position: 0.35; color: Qt.rgba(0.11, 0.09, 0.16, 0.55) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.05, 0.04, 0.09, 0.62) }
+            }
+
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0.49, 0.23, 0.93, 0.35)
+                shadowBlur: 0.8
+                shadowVerticalOffset: 6
+                shadowHorizontalOffset: 0
+            }
+        }
+
+        // subtle top highlight line - the classic glass "edge catches light" cue
+        Rectangle {
+            anchors.top: glass.top
+            anchors.left: glass.left
+            anchors.right: glass.right
+            anchors.margins: 1
+            height: 1
+            color: Qt.rgba(1, 1, 1, 0.35)
+        }
 
         Text {
-            id: bubbleText
+            id: panelText
             anchors.centerIn: parent
-            width: parent.width - 28
+            width: parent.width - 36
             wrapMode: Text.WordWrap
-            color: "white"
-            font.pixelSize: 13
+            color: "#f5f3fa"
+            font.pixelSize: 14
+            font.letterSpacing: 0.2
+            lineHeight: 1.25
         }
 
         Timer {
             id: hideTimer
-            interval: 14000
-            onTriggered: bubble.opacity = 0
+            interval: 16000
+            onTriggered: panel.hide()
         }
 
         function show(text) {
-            bubbleText.text = text
+            panelText.text = text
             opacity = 1
+            root.hasSomethingToShow = true
+            character.runJavaScript("setAvatarState('speaking')")
             hideTimer.restart()
         }
-    }
-
-    Connections {
-        target: backend
-        function onRecallReady(summary, trackId, appName) {
-            bubble.show(summary)
-        }
-        function onRecallFailed(error) {
-            bubble.show("Couldn't reach the backend: " + error)
+        function hide() {
+            opacity = 0
+            root.hasSomethingToShow = false
+            character.runJavaScript("setAvatarState('idle')")
         }
     }
 }

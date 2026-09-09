@@ -11,6 +11,10 @@ Restart=on-failure
 RestartSec=10
 Environment=PYTHONPATH=%h/screen-context-assistant
 Environment=QT_QPA_PLATFORM=wayland
+# Without this, qDebug/qWarning/console.log all silently go to the journal
+# instead of this unit's own stdout/stderr - discovered while debugging why
+# QML errors produced zero output under `journalctl -u`.
+Environment=QT_FORCE_STDERR_LOGGING=1
 
 [Install]
 WantedBy=graphical-session.target

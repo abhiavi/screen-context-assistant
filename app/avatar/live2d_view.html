@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  canvas { background: transparent; }
+</style>
+<script src="live2d_assets/js/pixi.min.js"></script>
+<script src="live2d_assets/js/live2dcubismcore.min.js"></script>
+<script src="live2d_assets/js/cubism4.min.js"></script>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+const MODEL_URL = "live2d_assets/haru_greeter_t03/haru_greeter_t03.model3.json";
+
+const app = new PIXI.Application({
+  view: document.getElementById("canvas"),
+  width: window.innerWidth,
+  height: window.innerHeight,
+  backgroundAlpha: 0,
+  antialias: true,
+});
+
+let model = null;
+let mouthTimer = null;
+let mouthT = 0;
+
+(async () => {
+  const { Live2DModel } = PIXI.live2d;
+  model = await Live2DModel.from(MODEL_URL, { autoInteract: false });
+  app.stage.addChild(model);
+  fitModel();
+  window.addEventListener("resize", fitModel);
+})();
+
+function fitModel() {
+  if (!model) return;
+  app.renderer.resize(window.innerWidth, window.innerHeight);
+  const scale = Math.min(window.innerWidth / model.internalModel.width, window.innerHeight / model.internalModel.height) * 0.92;
+  model.scale.set(scale);
+  model.x = (window.innerWidth - model.width) / 2;
+  model.y = window.innerHeight - model.height;
+}
+
+function stopMouth() {
+  if (mouthTimer) { clearInterval(mouthTimer); mouthTimer = null; }
+  if (model) {
+    try { model.internalModel.coreModel.setParameterValueById("ParamMouthOpenY", 0); } catch (e) {}
+  }
+}
+
+function startMouth() {
+  stopMouth();
+  mouthT = 0;
+  mouthTimer = setInterval(() => {
+    if (!model) return;
+    mouthT += 0.35;
+    const v = Math.max(0, Math.sin(mouthT)) * 0.85;
+    try { model.internalModel.coreModel.setParameterValueById("ParamMouthOpenY", v); } catch (e) {}
+  }, 60);
+}
+
+// Exposed to Qt via runJavaScript(). state: "idle" | "attentive" | "speaking"
+window.setAvatarState = function(state) {
+  if (!model) return;
+  if (state === "attentive") {
+    stopMouth();
+    try { model.expression(1); } catch (e) {}
+    try { model.motion("Tap", 0); } catch (e) {}
+  } else if (state === "speaking") {
+    try { model.expression(2); } catch (e) {}
+    startMouth();
+  } else {
+    stopMouth();
+    try { model.expression(0); } catch (e) {}
+  }
+};
+</script>
+</body>
+</html>

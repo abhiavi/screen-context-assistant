@@ -19,6 +19,7 @@ from PySide6.QtCore import QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtWebEngineQuick import QtWebEngineQuick
 
 from app.avatar.vault_writer import append_entry
 
@@ -87,6 +88,7 @@ class IdleWatcher:
 class Backend(QObject):
     recallReady = Signal(str, str, str)  # summary, track_id, app_name
     recallFailed = Signal(str)
+    recallRequested = Signal()  # fires immediately, before the network reply lands
 
     def __init__(self, config: dict):
         super().__init__()
@@ -110,6 +112,8 @@ class Backend(QObject):
 
     @Slot(str)
     def requestRecall(self, track_id: str = "", proactive: bool = False, for_vault: bool = False) -> None:
+        if not for_vault:
+            self.recallRequested.emit()
         url = f"{self.config['backend_base_url']}/recall"
         if track_id:
             url += f"?track_id={track_id}"
@@ -142,6 +146,7 @@ class Backend(QObject):
 
 
 def main() -> None:
+    QtWebEngineQuick.initialize()
     config = load_config()
     app = QGuiApplication(sys.argv)
     backend = Backend(config)
