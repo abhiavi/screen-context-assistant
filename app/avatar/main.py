@@ -89,6 +89,8 @@ class Backend(QObject):
     recallReady = Signal(str, str, str)  # summary, track_id, app_name
     recallFailed = Signal(str)
     recallRequested = Signal()  # fires immediately, before the network reply lands
+    answerReady = Signal(str)  # answer to a typed question
+    answerFailed = Signal(str)
 
     def __init__(self, config: dict):
         super().__init__()
@@ -143,6 +145,34 @@ class Backend(QObject):
                 append_entry(track_id, app_name, summary)
         else:
             self.recallReady.emit(summary, track_id, app_name)
+
+    @Slot(str)
+    def askQuestion(self, question: str) -> None:
+        """User-typed question (the ask bar) -> POST /query on the RAG
+        service, which does a real Qdrant similarity search + synthesis
+        (unlike /recall, which just replays the most recent session)."""
+        if not question.strip():
+            return
+        self.recallRequested.emit()
+        request = QNetworkRequest(QUrl(f"{self.config['backend_base_url']}/query"))
+        request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
+        body = json.dumps({"question": question}).encode()
+        reply = self._net.post(request, body)
+        reply.finished.connect(lambda: self._on_query_reply(reply))
+
+    def _on_query_reply(self, reply: QNetworkReply) -> None:
+        if reply.error() != QNetworkReply.NetworkError.NoError:
+            self.answerFailed.emit(reply.errorString())
+            reply.deleteLater()
+            return
+        try:
+            data = json.loads(bytes(reply.readAll().data()))
+        except Exception as exc:  # noqa: BLE001
+            self.answerFailed.emit(str(exc))
+            reply.deleteLater()
+            return
+        reply.deleteLater()
+        self.answerReady.emit(data.get("answer", ""))
 
 
 def main() -> None:
