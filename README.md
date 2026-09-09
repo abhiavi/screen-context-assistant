@@ -1,68 +1,79 @@
 # screen-context-assistant
 
-Always-on desktop context assistant: watches KDE Activities + screen content
-across Abhishek's work tracks, keeps a searchable, privacy-bounded record of
-what he was doing and when, and answers questions like "what was I doing on
-the CRS doc around 2pm yesterday" via RAG.
+A floating, always-on-top **avatar companion** on `adraca-mini`: watches the
+active window (KDE Activity + screenshot + OCR), and proactively helps
+Abhishek recall what he was doing when he's lost track of a context or
+returns from being away. Backed by a capture→OCR→redact→embed→Qdrant
+pipeline and the LiteLLM gateway running on `adraca-aws-01`.
 
-Full design: `docs/screen-context-assistant-plan.md` (build spec, phased plan,
-infra-review resolutions).
+> **v4 re-scope (2026-09-09)**: this was originally a passive activity-logger
+> + CLI/RAG query tool, deployed to desktop+laptop+aws-01. The Operator
+> re-scoped it to a floating avatar, **mini-only** — desktop/laptop capture
+> agents are retired. See `docs/screen-context-assistant-plan.md`'s v4
+> RE-SCOPE block for the full rationale; the v3 material below it is the
+> still-valid backend/pipeline reference.
 
-## Hard constraints (do not re-open — see plan §0)
+## Hard constraints (do not re-open — see plan §0 / v4 block)
 
 1. AI gateway is `adraca-azure-01:4000` only. Never `adraca-pve:4000` (zombie
    LiteLLM instance). Fallback: `adraca-oracle-01:4000`.
-2. Runs entirely on `adraca-aws-01` — own Postgres + own Qdrant, **not**
-   azure-01's shared Qdrant.
-3. Privacy is a **transmission** boundary: local OCR + secret-redaction runs
-   on aws-01 before anything is sent off-fleet. Raw frames are never
-   persisted or uploaded. Enforced in code (`app/ingest/redact.py`,
-   `app/ingest/gateway.py`), not just config.
-4. Services bind to the Tailscale IP only, never `0.0.0.0`.
+2. Backend (Qdrant/Postgres/OCR/RAG) runs on `adraca-aws-01` — own Postgres +
+   own Qdrant, **not** azure-01's shared Qdrant. Chosen over collapsing onto
+   mini because mini's headroom is genuinely tight (7.2GB free of 29GB RAM,
+   65% root disk) — checked, not assumed.
+3. Capture agent + avatar UI run on `adraca-mini` **only** — this is an
+   explicit, app-specific exception to mini's usual Iron Rule (no heavy
+   always-on Docker/agentic work), approved by the Operator. Don't extend
+   that exception to anything else, and don't redeploy capture to
+   desktop/laptop (retired).
+4. Privacy is a **transmission** boundary: local OCR + secret-redaction runs
+   on mini before anything leaves the machine, then again before anything
+   leaves the fleet to a hosted model. Raw frames are never persisted or
+   uploaded. Enforced in code (`app/ingest/redact.py`, `app/ingest/gateway.py`).
+5. Services bind to the Tailscale IP only, never `0.0.0.0`.
 
 ## Status
 
-- **Phase 0 (infra + guardrails): done.** Embeddings gate confirmed live
+- **Backend (Phase 0-3, on aws-01): done.** Embeddings gate confirmed live
   against the gateway (`text-embedding-004`, 768-dim); vision alias
-  (`qwen-vl-ocr`) and synthesis alias (`glm-4.7`) confirmed reachable.
-  Local Qdrant + Postgres running in Docker, bound to the Tailscale IP.
-- **Phase 2/3 (ingest, redaction, storage): done and end-to-end tested** —
-  see `tests/test_redact.py` and the manual verification below. Redaction
-  operates on OCR'd text; realistic (anti-aliased) screenshot text OCRs
-  cleanly and redacts correctly, verified against fake AWS keys and emails
-  actually being stripped before the point lands in Qdrant.
-- **Phase 1 (capture agent): done and deployed** to `adraca-desktop` and
-  `adraca-laptop` as a `systemd --user` service, verified end-to-end with
-  real captures flowing into Qdrant, correctly redacted. See
-  `deploy/` + `scripts/install_capture_agent.sh` and the KWin authorization
-  note below.
-- **Phase 4 (Obsidian sync writer): not started.** `pipeline.summarize_session`
-  exists as the synthesis primitive; the poll-and-write-to-vault loop is not
-  built yet.
-- **Phase 5 (RAG API): MVP done.** `POST /query` on `app/api/rag_service.py`
-  works end-to-end against real ingested data.
+  (`qwen-vl-ocr`) and synthesis alias (`glm-4.7`) confirmed reachable. Local
+  Qdrant + Postgres in Docker, bound to the Tailscale IP. OCR+redact+embed
+  pipeline verified end-to-end (fake AWS key/email confirmed stripped before
+  landing in Qdrant).
+- **Capture agent: done, mini-only.** Deployed as a `systemd --user` service
+  on `adraca-mini` (desktop/laptop deployments retired 2026-09-09 — see the
+  v4 re-scope). See `deploy/` + `scripts/install_capture_agent.sh` and the
+  KWin authorization note below.
+- **Avatar UI (folds in old Phase 4 + 5): MVP done, deployed on mini.**
+  PySide6 + QtQuick + `org.kde.layershell` floating overlay
+  (`app/avatar/`), verified live via screenshot on mini's real KWin 6.7.4
+  session: renders correctly, always-on-top, doesn't steal window focus.
+  Click-to-recall and idle-return proactive recall both call a new
+  `GET /recall` endpoint on the aws-01 RAG service, which reconstructs "the
+  last session" on the fly from recent Qdrant frames (see Known limitations
+  — Postgres session-tracking was never wired up) and synthesizes a short
+  recap. Verified live: a real screen capture flowed through OCR → redact →
+  Qdrant → recall → LLM synthesis → speech bubble, all with real data.
+  Vault-write (`app/avatar/vault_writer.py`) runs on a timer, appending
+  recall summaries to a single journal file — see the note below on why
+  it's not scattered into the vault's real per-project folders yet.
 - **Phase 6 (permanence/Ansible): not started.**
 
 ## Architecture
 
 ```
-capture agent (desktop/laptop)     ingest service (aws-01:8088)         RAG API (aws-01:8089)
-  DBus Activities + KWin      -->    OCR (tesseract, local)
-  screenshot + phash dedup           |
-                                      v
-                                    redact (regex + entropy)
-                                      |
-                                      v
-                              [sensitive track?] --yes--> stop, local only
-                                      | no
-                                      v
-                              embed (gateway, redacted text only)
-                                      |
-                                      v
-                              Qdrant `screen-context` + Postgres sessions
+mini: capture agent            mini: avatar UI                 aws-01: ingest (8088) + RAG (8089)
+  DBus Activities + KWin  -->  (systemd --user, separate)         OCR -> redact -> embed -> Qdrant/Postgres
+  screenshot + phash dedup      |         ^                              ^
+  systemd --user                | click / idle-return                   | GET /recall
+                                 v         |                             |
+                          POST /ingest/frame (over Tailscale)  <---------+
+                                 |
+                                 v
+                          speech bubble (QML)  +  vault_writer.py -> ~/ObsidianVault (local FS, mini only)
 ```
 
-## Running
+## Running the backend (aws-01)
 
 ```bash
 cp .env.example .env   # fill in LITELLM_API_KEY, POSTGRES_PASSWORD
@@ -74,13 +85,13 @@ python -m uvicorn app.api.rag_service:app --host $BIND_HOST --port 8089
 
 Retention (cron daily): `python scripts/retention_rollup.py`
 
-### Capture agent (desktop/laptop)
+### Capture agent (mini only)
 
 ```bash
 rsync -az --exclude='.venv' --exclude='.git' --exclude='__pycache__' \
   --exclude='qdrant_storage' --exclude='pgdata' --exclude='.env' \
-  ./ desktop:~/screen-context-assistant/     # or laptop:
-ssh desktop
+  ./ mini:~/screen-context-assistant/
+ssh mini
 cd ~/screen-context-assistant && bash scripts/install_capture_agent.sh
 ```
 
@@ -103,9 +114,55 @@ equivalent of `xdotool`.
 writes `~/.config/screen-context-assistant/capture.json` with every
 discovered KDE Activity defaulted to *non-sensitive*. Nothing in this repo
 knows which of your Activities is the bug-bounty/credentials one — **you
-must edit `sensitive_tracks` in that file yourself** (both machines) before
-trusting it with high-risk tracks; plan §5's guarantee that sensitive tracks
-never leave the machine only holds for tracks you've actually flagged.
+must edit `sensitive_tracks` in that file yourself** before trusting it with
+high-risk tracks; plan §5's guarantee that sensitive tracks never leave the
+machine only holds for tracks you've actually flagged.
+
+### Avatar UI (mini only)
+
+```bash
+ssh mini
+cd ~/screen-context-assistant && bash scripts/install_avatar.sh
+```
+
+`pyside6` and `layer-shell-qt` were already installed system-wide on mini
+when this was built (2026-09-09) — the install script pulls them via pacman
+for reproducibility on a fresh machine. The avatar reuses the capture
+agent's `--system-site-packages` venv (no separate one).
+
+**Left-click** the avatar to trigger an on-demand recall. **Right-click**
+cycles it to the next screen corner. There is no free-drag: Wayland gives
+layer-shell surfaces edge-relative `anchors`/`margins` positioning, not
+arbitrary x/y, and `QMargins` isn't a QML-constructible value type — so
+per the plan's own suggested fallback, this degrades to **edge-docked with
+corner-cycling** rather than pixel-level dragging.
+
+**Idle-return detection** uses systemd-logind's `IdleHint` (DE-agnostic),
+not KWin's own screensaver interface — `org.freedesktop.ScreenSaver.
+GetSessionIdleTime` returned `NotSupported` on this KWin/platform when
+tested live. Resolving "our own" session also needed care: a
+`systemd --user` service runs in a different cgroup than the interactive
+login session, so `GetSessionByPID` raises `NoSessionForPID` (this crashed
+the first real deployment — an interactive SSH test had misleadingly
+worked). `IdleWatcher` enumerates sessions instead and picks the actual
+seat0 graphical one.
+
+**Vault-write is NOT yet routed to the vault's real per-project folders**
+(`01_Adraca_Enterprise`, `02_Lambda_Consulting`, etc.) — the KDE Activity
+track_ids (`adraca`, `career`, `darkside`, `home-server`, `lambda`,
+`personal`, `research`) don't map onto that taxonomy unambiguously, and
+guessing risked scattering notes into the wrong place in an already-organized
+vault. Everything currently lands in one journal file:
+`~/ObsidianVault/10_Agent_Embassies/Screen_Context_Journal/<date>.md`.
+Ask the Operator for the track→folder mapping before changing this.
+
+**Recall reconstructs sessions from Qdrant, not Postgres**: nothing in the
+ingest pipeline currently calls `postgres_store.start_session`/`end_session`
+— only Qdrant gets written per frame. `GET /recall` on the RAG service
+works around this by clustering recent Qdrant frames on the fly (a >5min
+gap between consecutive frames = session boundary) rather than depending on
+the (empty) `sessions` table. Fine for MVP; wiring real session tracking
+into the ingest pipeline would make this more precise later.
 
 ## Testing
 
@@ -134,3 +191,5 @@ call) would allow them through.
   but not used by the MVP pipeline; OCR text is enough for text-heavy
   screens, and doing image-level redaction (blackout boxes) before any
   vision call is unbuilt.
+- See the Avatar UI section above for the drag/corner-cycling, idle-detection,
+  vault-routing, and Postgres-vs-Qdrant-session caveats.

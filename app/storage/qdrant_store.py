@@ -94,6 +94,30 @@ def search(
     ).points
 
 
+def recent_points(
+    *,
+    track_id: str | None = None,
+    limit: int = 300,
+    client: QdrantClient | None = None,
+):
+    """Most recent frames, newest first. Used to reconstruct "the last
+    session" on the fly for avatar recall (plan v4) since nothing currently
+    populates the Postgres sessions table - Qdrant's timestamped payloads
+    are the only real session-boundary signal that exists today."""
+    client = client or get_client()
+    query_filter = None
+    if track_id:
+        query_filter = qm.Filter(must=[qm.FieldCondition(key="track_id", match=qm.MatchValue(value=track_id))])
+    points, _ = client.scroll(
+        collection_name=settings.qdrant_collection,
+        scroll_filter=query_filter,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    return sorted(points, key=lambda p: p.payload.get("timestamp", 0), reverse=True)
+
+
 def purge_older_than(days: int, client: QdrantClient | None = None) -> None:
     """Retention enforcement (plan §4.3): frame-level vectors ~30 days."""
     client = client or get_client()
