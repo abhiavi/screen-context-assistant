@@ -1,0 +1,8 @@
+# Extra deps for the capture agent (app/capture/agent.py), installed on
+# adraca-desktop / adraca-laptop only - not needed on aws-01.
+# On Arch: pacman -S python-dbus python-gobject
+dbus-python
+PyGObject
+httpx
+imagehash
+pillow
