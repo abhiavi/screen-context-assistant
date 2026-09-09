@@ -1,0 +1,16 @@
+{
+  "haru": {
+    "name": "Haru",
+    "model": "haru_greeter_t03/haru_greeter_t03.model3.json",
+    "idleMotionGroup": "Idle",
+    "attentiveMotionGroup": "Tap",
+    "expressions": { "idle": 0, "attentive": 1, "speaking": 2 }
+  },
+  "mao": {
+    "name": "Mao",
+    "model": "mao_pro/mao_pro.model3.json",
+    "idleMotionGroup": "Idle",
+    "attentiveMotionGroup": "",
+    "expressions": { "idle": 0, "attentive": 2, "speaking": 4 }
+  }
+}

@@ -131,11 +131,25 @@ for reproducibility on a fresh machine. The avatar reuses the capture
 agent's `--system-site-packages` venv (no separate one).
 
 **Left-click** the avatar to trigger an on-demand recall. **Right-click**
-cycles it to the next screen corner. There is no free-drag: Wayland gives
+cycles it to the next screen corner. **Middle-click** cycles to the next
+available Live2D character. There is no free-drag: Wayland gives
 layer-shell surfaces edge-relative `anchors`/`margins` positioning, not
 arbitrary x/y, and `QMargins` isn't a QML-constructible value type — so
 per the plan's own suggested fallback, this degrades to **edge-docked with
 corner-cycling** rather than pixel-level dragging.
+
+**Choosing an avatar**: two characters are bundled today — `haru` (default)
+and `mao`, both Live2D's own official free sample models (see
+`app/avatar/live2d_assets/NOTICE.md` for licensing). Middle-click cycles
+live for the current session only; to change the *default* on startup, set
+`"avatar_id"` in `~/.config/screen-context-assistant/avatar.json` to one of
+the ids in `app/avatar/live2d_assets/avatars.json` and restart the service.
+To add another character: vendor its Cubism 4 model files under
+`live2d_assets/<id>/`, add an entry to `avatars.json` (model path + which
+motion group/expression indices to use for the idle/attentive/speaking
+states — inspect the model's own `.model3.json` for what it actually has,
+they're not consistent between models), and it shows up in the middle-click
+cycle automatically — no code changes needed.
 
 **Idle-return detection** uses systemd-logind's `IdleHint` (DE-agnostic),
 not KWin's own screensaver interface — `org.freedesktop.ScreenSaver.

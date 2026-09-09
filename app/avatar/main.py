@@ -32,7 +32,14 @@ DEFAULT_CONFIG = {
     "idle_threshold_seconds": 300,
     "vault_write_interval_seconds": 900,
     "screen_poll_seconds": 4,
+    "avatar_id": "haru",
 }
+
+AVATARS_PATH = Path(__file__).parent / "live2d_assets" / "avatars.json"
+
+
+def load_avatar_ids() -> list[str]:
+    return list(json.loads(AVATARS_PATH.read_text()).keys())
 
 
 def load_config() -> dict:
@@ -226,6 +233,8 @@ def main() -> None:
 
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("backend", backend)
+    engine.rootContext().setContextProperty("initialAvatarId", config["avatar_id"])
+    engine.rootContext().setContextProperty("availableAvatarIds", load_avatar_ids())
     qml_path = Path(__file__).parent / "avatar.qml"
     engine.load(QUrl.fromLocalFile(str(qml_path)))
 

@@ -43,6 +43,8 @@ Window {
     }
 
     // --- Live2D character -------------------------------------------
+    property string currentAvatarId: initialAvatarId
+
     WebEngineView {
         id: character
         width: root.charSize
@@ -50,7 +52,7 @@ Window {
         x: root.charX
         y: root.height - root.charSize - 56  // leave room for the ask bar below
         backgroundColor: "transparent"
-        url: Qt.resolvedUrl("live2d_view.html")
+        url: Qt.resolvedUrl("live2d_view.html?avatar=" + root.currentAvatarId)
     }
 
     // Declared as a SIBLING after (not nested inside) the WebEngineView -
@@ -60,11 +62,20 @@ Window {
         y: character.y
         width: character.width
         height: character.height
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         onClicked: function(mouse) {
             if (mouse.button === Qt.RightButton) {
                 var lane = root.width - root.charSize
                 root.charX = Math.random() * lane
+            } else if (mouse.button === Qt.MiddleButton) {
+                // cycle to the next available Live2D character, live -
+                // no page reload, no restart needed (see setAvatar() in
+                // live2d_view.html). Only lasts for this session; edit
+                // avatar_id in avatar.json to change the default.
+                var ids = availableAvatarIds
+                var idx = ids.indexOf(root.currentAvatarId)
+                root.currentAvatarId = ids[(idx + 1) % ids.length]
+                character.runJavaScript("setAvatar('" + root.currentAvatarId + "')")
             } else {
                 backend.requestRecall("")
             }
