@@ -234,6 +234,15 @@ gap between consecutive frames = session boundary) rather than depending on
 the (empty) `sessions` table. Fine for MVP; wiring real session tracking
 into the ingest pipeline would make this more precise later.
 
+## Auditing outbound calls
+
+`data/audit_log.jsonl` on aws-01 (gitignored, append-only) records every
+single call `app/ingest/gateway.py` makes off-fleet: model, token usage,
+success/failure, and a SHA-256 of the exact text sent — never the text
+itself. `tail -f data/audit_log.jsonl | jq` to watch it live, or `jq -s`
+to aggregate spend/volume by model. This exists so the transmission
+boundary is auditable after the fact, not just trusted at call time.
+
 ## Testing
 
 ```bash
