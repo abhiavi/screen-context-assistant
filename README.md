@@ -76,8 +76,8 @@ mini: capture agent            mini: avatar UI                 aws-01: ingest (8
 ## Running the backend (aws-01)
 
 ```bash
-cp .env.example .env   # fill in LITELLM_API_KEY, POSTGRES_PASSWORD
-bash scripts/init_storage.sh          # docker compose up postgres+qdrant, apply schema, ensure collection
+cp .env.example .env   # fill in LITELLM_API_KEY, POSTGRES_PASSWORD, NEO4J_PASSWORD
+bash scripts/init_storage.sh          # docker compose up postgres+qdrant+neo4j, apply schema, ensure collection/indices
 source .venv/bin/activate
 python -m uvicorn app.api.ingest_service:app --host $BIND_HOST --port 8088
 python -m uvicorn app.api.rag_service:app --host $BIND_HOST --port 8089
@@ -160,10 +160,34 @@ cluster for a track in both its synthesized text and structured
 `project_label`/`project_summary` response fields. Needs `numpy` +
 `scikit-learn` (aws-01 only — mini's avatar/capture venv doesn't run this).
 
+**Temporal knowledge-graph memory** (upgrade-roadmap "Next" phase,
+2026-09-10): `app/graph/client.py` wires [Graphiti](https://github.com/getzep/graphiti)
+to the LiteLLM gateway and a new Neo4j service (`docker-compose.yml`,
+Bolt port 7687). Fed from daily digests — one episode per track per day
+(`GET /digest` calls `add_daily_episode` after synthesizing each track's
+summary), not raw frames or every session, to keep Graphiti's own LLM
+extraction cost bounded. `GET /graph_search?query=&track_id=` answers
+"what changed" / "how does X relate to Y" with facts that carry validity
+windows (`valid_at`/`invalid_at`) — complementary to `/query`'s raw
+semantic search and HDBSCAN's session-level clustering, neither of which
+track how facts change over time. Two real incompatibilities with our
+gateway, found live (not documented anywhere for `graphiti-core==0.30.2`):
+the default `OpenAIClient` uses OpenAI's newer `/v1/responses` API (404 on
+this gateway) — fixed with `OpenAIGenericClient` instead; and the `openai`
+SDK's `.embeddings.create()` unconditionally sends `encoding_format`
+(litellm's `vertex_ai` passthrough rejects the key outright, any value) —
+fixed with a small embedder subclass that bypasses the SDK for a raw httpx
+POST, same pattern `app/ingest/gateway.py` already uses. Both
+`graphiti-core` (→ PostHog) and Neo4j itself report anonymous usage data
+by default — disabled (`GRAPHITI_TELEMETRY_ENABLED=false`,
+`NEO4J_dbms_usage__report_enabled=false`), inconsistent with this app's
+privacy stance to leave on. `docker compose up -d neo4j` / `bash
+scripts/init_storage.sh` brings it up; needs `NEO4J_PASSWORD` in `.env`.
+
 **Read-only MCP server** (upgrade-roadmap "Next" phase, 2026-09-10):
-`app/mcp_server.py`, port 8090 on aws-01, exposes six tools —
+`app/mcp_server.py`, port 8090 on aws-01, exposes seven tools —
 `recall`, `query`, `digest`, `list_sessions`, `list_clusters`,
-`conversation_history` — each a thin proxy around the matching rag_service
+`graph_search`, `conversation_history` — each a thin proxy around the matching rag_service
 HTTP endpoint, so another Claude/AGY session anywhere on the Tailscale mesh
 can ask "what has the Operator been working on" directly instead of
 SSHing in and reconstructing it from Postgres/Qdrant by hand. Deliberately
