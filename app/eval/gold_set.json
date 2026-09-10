@@ -1,0 +1,32 @@
+[
+  {
+    "question": "What was I doing with kubectl and the sse-search deployment?",
+    "track_id": "home-server",
+    "reference": "Rolling out the sse-search deployment to the sovereign-search-prod namespace via `kubectl set image`, updating it to image tag v1.7.7."
+  },
+  {
+    "question": "What Jellyseerr settings was I looking at?",
+    "track_id": "home-server",
+    "reference": "Reviewing Jellyseerr's Services settings page, specifically the Radarr integration configuration."
+  },
+  {
+    "question": "What am I working on for the Adraca investor pitch?",
+    "track_id": "home-server",
+    "reference": null
+  },
+  {
+    "question": "Summarize my recent home-server track activity.",
+    "track_id": "home-server",
+    "reference": null
+  },
+  {
+    "question": "What was the most recent thing I did in the research track?",
+    "track_id": "research",
+    "reference": null
+  },
+  {
+    "question": "What have I been working on across all my tracks recently?",
+    "track_id": null,
+    "reference": null
+  }
+]

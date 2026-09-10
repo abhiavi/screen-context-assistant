@@ -103,6 +103,37 @@ repo root — neither script adds the repo root to `sys.path` itself):
   depend on this cron job, so recall never has a multi-minute blind spot for
   whatever's happened since the last run. Logs: `data/segment_sessions.log`.
 
+**RAG evaluation harness** (upgrade-roadmap "Now" item 6, 2026-09-10):
+`scripts/run_ragas_eval.py` runs the gold-set questions in
+`app/eval/gold_set.json` through the live `/query` endpoint and scores each
+with `app/eval/metrics.py` — faithfulness, answer relevancy, context
+precision (all reference-free) plus context recall for the gold-set entries
+that carry a hand-written `reference`. Manual/regression tool, not
+scheduled — run it after touching retrieval, the prompt template, or the
+embedding/synthesis models:
+```bash
+PYTHONPATH=/home/ubuntu/screen-context-assistant .venv/bin/python scripts/run_ragas_eval.py
+```
+Writes a full per-question JSON report to `data/ragas_eval_<timestamp>.json`
+(each judged statement kept, not just the aggregate score) and prints a
+summary. **Reimplemented natively rather than using the `ragas` package** —
+`ragas==0.4.3`'s own dependencies are mutually incompatible on PyPI right
+now (an unconditional dead-code import of `ChatVertexAI` drags in an old
+`langchain-community` that conflicts with the `langchain-openai` version
+ragas itself also requires; not resolvable by version-pinning within
+reasonable effort). The four metrics are well-documented algorithms
+(atomic-statement extraction + LLM-judge verdicts for faithfulness/context
+recall, generated-question embedding similarity for answer relevancy,
+ranked relevance judgments for context precision) and reimplementing them
+directly against `app/ingest/gateway.py` also keeps every eval LLM call
+inside the same `assert_clean()` redaction gate production calls use, which
+a generic library wouldn't know to do. First real run against live data
+(6 gold questions): faithfulness 0.84, answer_relevancy 0.57,
+context_precision 0.90, context_recall 0.75 (n=2, only entries with a
+reference) — plausible and discriminating (verified by hand: it correctly
+flagged speculative/advisory statements as unsupported while confirming
+concrete factual ones, not just returning uniform scores).
+
 **LiteLLM key is scoped** (`LITELLM_API_KEY` in `.env`) — `$20/30d` budget,
 60 rpm / 100k tpm, restricted to exactly the three models this app uses
 (`text-embedding-004`, `qwen-vl-ocr`, `glm-4.7`). This was flagged as a
