@@ -12,5 +12,12 @@
     "idleMotionGroup": "Idle",
     "attentiveMotionGroup": "",
     "expressions": { "idle": 0, "attentive": 2, "speaking": 4 }
+  },
+  "natori": {
+    "name": "Natori",
+    "model": "natori/Natori.model3.json",
+    "idleMotionGroup": "Idle",
+    "attentiveMotionGroup": "TapBody",
+    "expressions": { "idle": 0, "attentive": 3, "speaking": 6 }
   }
 }

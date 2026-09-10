@@ -23,10 +23,35 @@ Window {
     LayerShellQt.Window.keyboardInteractivity: LayerShellQt.Window.KeyboardInteractivityOnDemand
 
     readonly property int charSize: 240
+    readonly property int collapsedCharSize: 72
     property bool hasSomethingToShow: false
+
+    // Starts small and out of the way ("should not come in maximum size
+    // upfront") - a click expands it; it quietly re-collapses after a
+    // while of no engagement.
+    property bool expanded: false
+    property int currentCharSize: expanded ? charSize : collapsedCharSize
+
+    function expand() {
+        if (!expanded) expanded = true
+        collapseTimer.restart()
+    }
+
+    Timer {
+        id: collapseTimer
+        interval: 45000
+        onTriggered: {
+            if (root.expanded && !panel.visible && !askInput.activeFocus) {
+                root.expanded = false
+            } else {
+                collapseTimer.restart()  // still showing something / being typed into - check again later
+            }
+        }
+    }
 
     property real charX: root.width - charSize - 20
     Behavior on charX { NumberAnimation { duration: 2600; easing.type: Easing.InOutQuad } }
+    Behavior on currentCharSize { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
 
     Timer {
         interval: 1000
@@ -35,7 +60,7 @@ Window {
         property int tick: 0
         onTriggered: {
             tick++
-            if (tick % 25 === 0 && !root.hasSomethingToShow) {
+            if (tick % 25 === 0 && !root.hasSomethingToShow && root.expanded) {
                 var lane = root.width - root.charSize
                 root.charX = Math.max(0, Math.min(lane, Math.random() * lane))
             }
@@ -47,10 +72,10 @@ Window {
 
     WebEngineView {
         id: character
-        width: root.charSize
-        height: root.charSize
+        width: root.currentCharSize
+        height: root.currentCharSize
         x: root.charX
-        y: root.height - root.charSize - 56  // leave room for the ask bar below
+        y: root.height - height - (root.expanded ? 56 : 20)  // leave room for the ask bar once expanded
         backgroundColor: "transparent"
         url: Qt.resolvedUrl("live2d_view.html?avatar=" + root.currentAvatarId)
     }
@@ -64,6 +89,11 @@ Window {
         height: character.height
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         onClicked: function(mouse) {
+            if (!root.expanded) {
+                root.expand()  // first click just opens it, doesn't also trigger a recall
+                return
+            }
+            collapseTimer.restart()
             if (mouse.button === Qt.RightButton) {
                 var lane = root.width - root.charSize
                 root.charX = Math.random() * lane
@@ -84,6 +114,7 @@ Window {
         // Scroll to browse past exchanges - "different discussion on
         // different work" (plan). Lazily fetches history on first use.
         onWheel: function(wheel) {
+            root.expand()
             if (!panel.historyLoaded) {
                 panel.historyLoaded = true
                 backend.loadHistory("")
@@ -106,6 +137,7 @@ Window {
             panel.historyEntries = JSON.parse(jsonText)
         }
         function onRecallRequested() {
+            root.expand()  // covers the proactive idle-return path too, which never goes through the character's own click handler
             root.hasSomethingToShow = true
             character.runJavaScript("setAvatarState('attentive')")
         }
@@ -130,9 +162,14 @@ Window {
         }
     }
 
-    // --- ask bar (always visible - "a place to put the question") ------
+    // --- ask bar ("a place to put the question") - only once expanded,
+    // so the collapsed companion doesn't take up screen space upfront ----
     Item {
         id: askBar
+        visible: root.expanded
+        enabled: root.expanded
+        opacity: root.expanded ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 180 } }
         x: 10
         y: root.height - 46
         width: root.width - 20
@@ -194,6 +231,7 @@ Window {
 
         function submit() {
             if (askInput.text.trim().length === 0) return
+            collapseTimer.restart()
             backend.askQuestion(askInput.text)
             askInput.text = ""
         }
@@ -323,6 +361,7 @@ Window {
         }
 
         function show(text) {
+            root.expand()
             panelText.text = text
             panelFlick.contentY = 0
             opacity = 1
@@ -337,6 +376,7 @@ Window {
         }
         function showHistoryAt(idx) {
             if (historyEntries.length === 0) return
+            root.expand()
             historyIndex = Math.max(0, Math.min(historyEntries.length - 1, idx))
             var entry = historyEntries[historyIndex]
             panelText.text = entry.answer

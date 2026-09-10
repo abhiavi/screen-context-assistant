@@ -130,7 +130,13 @@ when this was built (2026-09-09) — the install script pulls them via pacman
 for reproducibility on a fresh machine. The avatar reuses the capture
 agent's `--system-site-packages` venv (no separate one).
 
-**Left-click** the avatar to trigger an on-demand recall. **Right-click**
+**Starts small, collapsed** (72px, no ask bar) so it doesn't take up screen
+space upfront — the **first click** on it just expands it to full size
+(240px) and reveals the ask bar; a proactive idle-return recall or a
+scroll-wheel history browse also auto-expands it. It quietly re-collapses
+after ~45s of no engagement (no panel showing, ask bar not focused).
+
+Once expanded: **left-click** triggers an on-demand recall. **Right-click**
 cycles it to the next screen corner. **Middle-click** cycles to the next
 available Live2D character. There is no free-drag: Wayland gives
 layer-shell surfaces edge-relative `anchors`/`margins` positioning, not
@@ -138,8 +144,9 @@ arbitrary x/y, and `QMargins` isn't a QML-constructible value type — so
 per the plan's own suggested fallback, this degrades to **edge-docked with
 corner-cycling** rather than pixel-level dragging.
 
-**Choosing an avatar**: two characters are bundled today — `haru` (default)
-and `mao`, both Live2D's own official free sample models (see
+**Choosing an avatar**: three characters are bundled today — `haru`
+(default), `mao`, and `natori` (the most dynamic: 8 action motions vs. the
+others' 1-2), all Live2D's own official free sample models (see
 `app/avatar/live2d_assets/NOTICE.md` for licensing). Middle-click cycles
 live for the current session only; to change the *default* on startup, set
 `"avatar_id"` in `~/.config/screen-context-assistant/avatar.json` to one of
