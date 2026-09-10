@@ -14,6 +14,12 @@ SECRET_SAMPLES = [
     "call me at 555-123-4567",
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogus1234567890abcdefghijklmnopqrstuvwx user@host",
+    # CLI-flag-style secrets (2026-09-10 live leak: sshpass -p 'X' sailed
+    # through every other pattern - short numeric password, no '='/':').
+    "sshpass -p '1991984' ssh root@100.116.78.21",
+    "mysqldump --password=hunter2hunter2 -u admin mydb",
+    "curl --passwd Sup3rSecret123 https://api.example.com",
+    "git clone https://alice:hunter2hunter2@github.com/org/private-repo.git",
 ]
 
 BENIGN_SAMPLES = [
@@ -21,6 +27,13 @@ BENIGN_SAMPLES = [
     "Slack #general channel open",
     "Terminal: git status shows 3 modified files",
     "Reading a PR titled 'add screen context ingest pipeline'",
+    # Should NOT be treated as secrets - -p is too ambiguous across tools
+    # (port/pattern/preserve/parallel) to blanket-redact; only sshpass's
+    # -p and long-form --password/--passwd flags are unambiguous enough.
+    "docker run -p 8080:80 nginx",
+    "tar -xvp -f archive.tar",
+    "ping -p ff00 example.com",
+    "make -j4 --parallel",
 ]
 
 

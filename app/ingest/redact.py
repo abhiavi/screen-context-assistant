@@ -25,6 +25,17 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("generic_kv_secret", re.compile(
         r"(?i)\b(api[_-]?key|secret|password|passwd|token|access[_-]?key)\b\s*[:=]\s*['\"]?[A-Za-z0-9/+_\-.]{8,}['\"]?"
     )),
+    # CLI-flag-style secrets (space-separated, not key=value) - found live
+    # 2026-09-10: `sshpass -p '1991984' ssh ...` sailed through every other
+    # pattern (too short/low-entropy for the entropy pass, no `=`/`:` for
+    # generic_kv_secret) and got sent to a hosted model. Scoped narrowly:
+    # `-p` alone is too ambiguous across tools (port, pattern, preserve...)
+    # to blanket-redact, but sshpass's `-p` is unambiguous, and long-form
+    # --password/--passwd flags are safe to redact universally.
+    ("sshpass_flag", re.compile(r"(?i)\bsshpass\s+-p\s*['\"]?[^\s'\"]{3,}['\"]?")),
+    ("long_password_flag", re.compile(r"(?i)--pass(?:word|wd)?\b\s*=?\s*['\"]?[^\s'\"]{3,}['\"]?")),
+    # user:password@host - curl/git-style embedded Basic Auth credentials
+    ("basic_auth_url", re.compile(r"\b[A-Za-z0-9._%+-]+:[^\s@'\"/]{3,}@[A-Za-z0-9.-]+")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")),
     ("credit_card", re.compile(r"\b(?:\d[ -]*?){13,16}\b")),
     ("ssh_key_line", re.compile(r"\bssh-(rsa|ed25519|ecdsa)\s+[A-Za-z0-9+/=]{40,}")),
