@@ -128,6 +128,7 @@ class Backend(QObject):
     answerReady = Signal(str)  # answer to a typed question
     answerFailed = Signal(str)
     activeScreenChanged = Signal(int)  # index into Qt.application.screens
+    historyReady = Signal(str)  # raw JSON array from GET /history
 
     def __init__(self, config: dict):
         super().__init__()
@@ -223,6 +224,23 @@ class Backend(QObject):
             return
         reply.deleteLater()
         self.answerReady.emit(data.get("answer", ""))
+
+    @Slot(str)
+    def loadHistory(self, track_id: str = "") -> None:
+        """Past recall/query exchanges (plan v4: browsable conversation
+        history) - fetched lazily on first scroll, not on every startup."""
+        url = f"{self.config['backend_base_url']}/history?limit=50"
+        if track_id:
+            url += f"&track_id={track_id}"
+        request = QNetworkRequest(QUrl(url))
+        reply = self._net.get(request)
+        reply.finished.connect(lambda: self._on_history_reply(reply))
+
+    def _on_history_reply(self, reply: QNetworkReply) -> None:
+        if reply.error() != QNetworkReply.NetworkError.NoError:
+            return
+        self.historyReady.emit(bytes(reply.readAll().data()).decode())
+        reply.deleteLater()
 
 
 def main() -> None:

@@ -151,6 +151,28 @@ states — inspect the model's own `.model3.json` for what it actually has,
 they're not consistent between models), and it shows up in the middle-click
 cycle automatically — no code changes needed.
 
+**Scroll wheel** over the character browses conversation history (past
+recalls/answers, newest first, lazily fetched from `GET /history` on the
+RAG service on first scroll) — useful since you may have different
+discussions with it across different tracks/work. Any new recall or typed
+answer exits history-browsing mode and returns to showing the live result.
+
+**Answers are markdown-rendered** (`Text.MarkdownText`) and the panel
+scrolls internally (capped at 420px tall) instead of clipping long expert
+answers — this was broken until 2026-09-10 (see Known limitations below on
+why the panel had to be redesigned).
+
+**Answers adopt an expert persona**: both `/recall` and `/query` prompts on
+the RAG service ask the model to infer the relevant domain from the
+captured context (software engineering, security research, business
+strategy, etc.) and answer in that expert's voice, rather than generically.
+
+**More idle liveliness**: the character plays a brief "flavor" motion from
+its extra motion group every 12-27s while genuinely idle (not mid-recall),
+in addition to the Live2D library's own built-in idle-motion autoplay —
+addresses feedback that it read as too static. Models with no extra motion
+group configured (check `avatars.json`) skip this; nothing to break.
+
 **Idle-return detection** uses systemd-logind's `IdleHint` (DE-agnostic),
 not KWin's own screensaver interface — `org.freedesktop.ScreenSaver.
 GetSessionIdleTime` returned `NotSupported` on this KWin/platform when
@@ -207,3 +229,10 @@ call) would allow them through.
   vision call is unbuilt.
 - See the Avatar UI section above for the drag/corner-cycling, idle-detection,
   vault-routing, and Postgres-vs-Qdrant-session caveats.
+- The panel used to be positioned above the character and sized purely to
+  its own content, with no scrolling — fine for short recalls, but longer
+  markdown-formatted expert answers got silently clipped (Operator report:
+  "response is not fully visible since scrolling is not enabled"). Fixed
+  2026-09-10 by decoupling the panel from the character's position (now
+  fixed to the window's top area) and adding a `Flickable` with a capped
+  max height (420px) and a scroll indicator.

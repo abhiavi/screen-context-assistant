@@ -52,3 +52,18 @@ CREATE TABLE IF NOT EXISTS track_daily_rollups (
     summary         TEXT,
     UNIQUE (track_id, day)
 );
+
+-- Avatar conversation history (plan v4 avatar): every recall/query shown
+-- in the avatar's panel, so the Operator can scroll back through past
+-- exchanges across different tracks/work sessions.
+CREATE TABLE IF NOT EXISTS avatar_conversations (
+    id              BIGSERIAL PRIMARY KEY,
+    track_id        TEXT,
+    kind            TEXT NOT NULL,          -- 'recall' | 'query'
+    question        TEXT,                   -- null for recall (no typed question)
+    answer          TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_avatar_conversations_created ON avatar_conversations (created_at);
+CREATE INDEX IF NOT EXISTS idx_avatar_conversations_track ON avatar_conversations (track_id);

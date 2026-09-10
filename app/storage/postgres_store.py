@@ -78,6 +78,30 @@ def save_summary(session_id: int, summary: str, vault_note_path: str | None = No
         )
 
 
+def save_conversation(track_id: str | None, kind: str, question: str | None, answer: str) -> int:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO avatar_conversations (track_id, kind, question, answer) VALUES (%s, %s, %s, %s) RETURNING id",
+            (track_id, kind, question, answer),
+        )
+        return cur.fetchone()[0]
+
+
+def recent_conversations(track_id: str | None = None, limit: int = 50):
+    with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if track_id:
+            cur.execute(
+                "SELECT * FROM avatar_conversations WHERE track_id = %s ORDER BY created_at DESC LIMIT %s",
+                (track_id, limit),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM avatar_conversations ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+        return cur.fetchall()
+
+
 def sessions_at(when: datetime, window_minutes: int = 30):
     with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(

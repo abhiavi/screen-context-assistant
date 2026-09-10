@@ -26,6 +26,8 @@ let manifest = null;
 let currentAvatarId = null;
 let mouthTimer = null;
 let mouthT = 0;
+let currentState = "idle";
+let flavorTimer = null;
 
 function fitModel() {
   if (!model) return;
@@ -56,13 +58,17 @@ function startMouth() {
 
 // Exposed to Qt via runJavaScript(). state: "idle" | "attentive" | "speaking"
 window.setAvatarState = function(state) {
+  currentState = state;
   if (!model || !manifest) return;
   const cfg = manifest[currentAvatarId];
   const expr = cfg.expressions || {};
   if (state === "attentive") {
     stopMouth();
     if (expr.attentive !== undefined) { try { model.expression(expr.attentive); } catch (e) {} }
-    if (cfg.attentiveMotionGroup) { try { model.motion(cfg.attentiveMotionGroup, 0); } catch (e) {} }
+    // NOTE: check !== undefined, not truthiness - some models (Mao) use
+    // the empty string "" as an actual, valid motion group name, which a
+    // plain `if (cfg.attentiveMotionGroup)` truthy check silently skips.
+    if (cfg.attentiveMotionGroup !== undefined) { try { model.motion(cfg.attentiveMotionGroup); } catch (e) {} }
   } else if (state === "speaking") {
     if (expr.speaking !== undefined) { try { model.expression(expr.speaking); } catch (e) {} }
     startMouth();
@@ -71,6 +77,26 @@ window.setAvatarState = function(state) {
     if (expr.idle !== undefined) { try { model.expression(expr.idle); } catch (e) {} }
   }
 };
+
+// Livelier idle presence (plan feedback: "more movements instead of
+// staying idle") - every 12-27s while genuinely idle (not mid-recall or
+// mid-answer), play a random motion from the model's "extra" group as a
+// brief flourish, then let the library's own idle-group autoplay resume.
+// Skipped for models with no extra group configured (attentiveMotionGroup
+// undefined).
+function scheduleFlavorMotion() {
+  if (flavorTimer) clearTimeout(flavorTimer);
+  flavorTimer = setTimeout(() => {
+    if (currentState === "idle" && model && manifest) {
+      const cfg = manifest[currentAvatarId];
+      if (cfg.attentiveMotionGroup !== undefined) {
+        try { model.motion(cfg.attentiveMotionGroup); } catch (e) {}
+      }
+    }
+    scheduleFlavorMotion();
+  }, 12000 + Math.random() * 15000);
+}
+scheduleFlavorMotion();
 
 // Exposed to Qt via runJavaScript(). Swaps the loaded character live,
 // no page reload needed (avoids re-doing PixiJS/Cubism Core init each

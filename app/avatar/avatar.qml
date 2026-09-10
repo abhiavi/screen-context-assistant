@@ -7,8 +7,8 @@ import org.kde.layershell as LayerShellQt
 
 Window {
     id: root
-    width: 560
-    height: 440
+    width: 460
+    height: 760
     visible: true
     color: "transparent"
     flags: Qt.FramelessWindowHint
@@ -77,17 +77,34 @@ Window {
                 root.currentAvatarId = ids[(idx + 1) % ids.length]
                 character.runJavaScript("setAvatar('" + root.currentAvatarId + "')")
             } else {
+                panel.leaveHistoryMode()
                 backend.requestRecall("")
+            }
+        }
+        // Scroll to browse past exchanges - "different discussion on
+        // different work" (plan). Lazily fetches history on first use.
+        onWheel: function(wheel) {
+            if (!panel.historyLoaded) {
+                panel.historyLoaded = true
+                backend.loadHistory("")
+            }
+            if (wheel.angleDelta.y > 0) {
+                panel.showHistoryAt(panel.historyIndex + 1)
+            } else {
+                panel.showHistoryAt(panel.historyIndex - 1)
             }
         }
     }
 
     Connections {
         target: backend
-        function onRecallReady(summary, trackId, appName) { panel.show(summary) }
-        function onRecallFailed(error) { panel.show("Couldn't reach the backend: " + error) }
-        function onAnswerReady(answer) { panel.show(answer) }
-        function onAnswerFailed(error) { panel.show("Couldn't reach the backend: " + error) }
+        function onRecallReady(summary, trackId, appName) { panel.leaveHistoryMode(); panel.show(summary) }
+        function onRecallFailed(error) { panel.leaveHistoryMode(); panel.show("Couldn't reach the backend: " + error) }
+        function onAnswerReady(answer) { panel.leaveHistoryMode(); panel.show(answer) }
+        function onAnswerFailed(error) { panel.leaveHistoryMode(); panel.show("Couldn't reach the backend: " + error) }
+        function onHistoryReady(jsonText) {
+            panel.historyEntries = JSON.parse(jsonText)
+        }
         function onRecallRequested() {
             root.hasSomethingToShow = true
             character.runJavaScript("setAvatarState('attentive')")
@@ -183,17 +200,27 @@ Window {
     }
 
     // --- glassmorphic answer/recall panel -----------------------------
+    // Fixed to the top area of the window (decoupled from the character's
+    // roaming x) so there's always full, predictable room for a long
+    // markdown-formatted expert answer, with internal scrolling for
+    // anything past that - was clipped/unreadable before (plan feedback:
+    // "response is not fully visible since scrolling is not enabled").
     Item {
         id: panel
         visible: opacity > 0
         opacity: 0
-        width: 360
-        height: panelText.implicitHeight + 44
-        x: Math.max(8, Math.min(root.width - width - 8, root.charX + root.charSize / 2 - width / 2))
-        y: Math.max(8, character.y - height - 14)
+        readonly property int maxHeight: 420
+        width: root.width - 40
+        height: Math.min(maxHeight, panelText.implicitHeight + (historyIndex >= 0 ? 68 : 44))
+        x: 20
+        y: 20
+
+        property var historyEntries: []
+        property int historyIndex: -1  // -1 = showing live content, not browsing
+        property bool historyLoaded: false
 
         Behavior on opacity { NumberAnimation { duration: 260 } }
-        Behavior on x { NumberAnimation { duration: 2600; easing.type: Easing.InOutQuad } }
+        Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
 
         Rectangle {
             id: glass
@@ -232,25 +259,72 @@ Window {
             color: Qt.rgba(1, 1, 1, 0.35)
         }
 
-        Text {
-            id: panelText
-            anchors.centerIn: parent
+        // History browsing header - only visible while stepped back
+        Row {
+            id: historyHeader
+            visible: panel.historyIndex >= 0
+            x: 18
+            y: 12
             width: parent.width - 36
-            wrapMode: Text.WordWrap
-            color: "#f5f3fa"
-            font.pixelSize: 14
-            font.letterSpacing: 0.2
-            lineHeight: 1.25
+            Text {
+                text: "History " + (panel.historyIndex + 1) + " / " + panel.historyEntries.length
+                    + (panel.historyEntries[panel.historyIndex] && panel.historyEntries[panel.historyIndex].question
+                       ? "  ·  “" + panel.historyEntries[panel.historyIndex].question + "”" : "")
+                color: Qt.rgba(1, 1, 1, 0.55)
+                font.pixelSize: 11
+                elide: Text.ElideRight
+                width: parent.width
+            }
+        }
+
+        Flickable {
+            id: panelFlick
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: historyHeader.visible ? historyHeader.bottom : parent.top
+            anchors.bottom: parent.bottom
+            anchors.margins: 18
+            anchors.topMargin: historyHeader.visible ? 4 : 18
+            clip: true
+            contentWidth: width
+            contentHeight: panelText.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+
+            Text {
+                id: panelText
+                width: panelFlick.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.MarkdownText
+                color: "#f5f3fa"
+                font.pixelSize: 14
+                font.letterSpacing: 0.1
+                lineHeight: 1.3
+                onLinkActivated: {}  // no browser to hand off to; just don't crash on a link click
+            }
+        }
+
+        // thin scroll indicator - only shown when content overflows
+        Rectangle {
+            visible: panelFlick.contentHeight > panelFlick.height
+            anchors.right: parent.right
+            anchors.rightMargin: 6
+            anchors.top: panelFlick.top
+            width: 3
+            radius: 1.5
+            color: Qt.rgba(1, 1, 1, 0.25)
+            height: Math.max(20, panelFlick.height * (panelFlick.height / panelFlick.contentHeight))
+            y: panelFlick.y + (panelFlick.height - height) * (panelFlick.contentY / Math.max(1, panelFlick.contentHeight - panelFlick.height))
         }
 
         Timer {
             id: hideTimer
-            interval: 18000
+            interval: 25000
             onTriggered: panel.hide()
         }
 
         function show(text) {
             panelText.text = text
+            panelFlick.contentY = 0
             opacity = 1
             root.hasSomethingToShow = true
             character.runJavaScript("setAvatarState('speaking')")
@@ -260,6 +334,20 @@ Window {
             opacity = 0
             root.hasSomethingToShow = false
             character.runJavaScript("setAvatarState('idle')")
+        }
+        function showHistoryAt(idx) {
+            if (historyEntries.length === 0) return
+            historyIndex = Math.max(0, Math.min(historyEntries.length - 1, idx))
+            var entry = historyEntries[historyIndex]
+            panelText.text = entry.answer
+            panelFlick.contentY = 0
+            opacity = 1
+            root.hasSomethingToShow = true
+            hideTimer.stop()  // browsing history doesn't auto-dismiss
+            character.runJavaScript("setAvatarState('speaking')")
+        }
+        function leaveHistoryMode() {
+            historyIndex = -1
         }
     }
 }

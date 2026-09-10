@@ -37,9 +37,42 @@ class RecallResponse(BaseModel):
     frame_count: int
 
 
+class ConversationEntry(BaseModel):
+    id: int
+    track_id: str | None
+    kind: str
+    question: str | None
+    answer: str
+    created_at: datetime
+
+
+EXPERT_PERSONA_INSTRUCTION = (
+    "Infer the relevant domain of expertise from the context below (e.g. "
+    "software engineering, security research, business strategy, academic "
+    "research, home infrastructure - whatever actually fits the captured "
+    "activity) and answer in that domain expert's voice: use the field's "
+    "own terminology and give the kind of specific, opinionated guidance a "
+    "real expert would give, not generic advice. "
+)
+MARKDOWN_INSTRUCTION = (
+    "Format the answer as clean Markdown (short paragraphs, bullet lists, "
+    "**bold** for key terms, `code` for identifiers) - it will be rendered "
+    "as Markdown, not shown as plain text."
+)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/history", response_model=list[ConversationEntry])
+def history(track_id: str | None = None, limit: int = 50) -> list[ConversationEntry]:
+    """Past recall/query exchanges, newest first - lets the avatar's panel
+    be scrolled back through instead of only ever showing the latest
+    answer (plan v4: "different discussion on different work")."""
+    rows = postgres_store.recent_conversations(track_id=track_id, limit=limit)
+    return [ConversationEntry(**row) for row in rows]
 
 
 @app.get("/recall", response_model=RecallResponse)
@@ -71,12 +104,15 @@ def recall(track_id: str | None = None) -> RecallResponse:
     joined = "\n---\n".join(ocr_snippets)[:4000]
 
     prompt = (
-        "The user stepped away and just came back. In 1-2 short, friendly "
-        "sentences, remind them what they were doing, based only on this "
-        "already-redacted on-screen text captured from their own screen "
-        f"(track: {resolved_track_id}, apps: {', '.join(app_names) or 'unknown'}):\n\n{joined}"
+        "The user stepped away and just came back. In 2-4 short, friendly "
+        "sentences, remind them what they were doing and, as a domain "
+        f"expert would, suggest the concrete next step. {EXPERT_PERSONA_INSTRUCTION}"
+        "Base this only on the already-redacted on-screen text below, captured "
+        f"from their own screen (track: {resolved_track_id}, apps: "
+        f"{', '.join(app_names) or 'unknown'}). {MARKDOWN_INSTRUCTION}\n\n{joined}"
     )
-    summary = gateway.synthesize(prompt, max_tokens=150)
+    summary = gateway.synthesize(prompt, max_tokens=220)
+    postgres_store.save_conversation(resolved_track_id, "recall", None, summary)
 
     return RecallResponse(
         track_id=resolved_track_id,
@@ -117,11 +153,13 @@ def query(req: QueryRequest) -> QueryResponse:
         )
 
     prompt = (
-        "Answer the question using only the context below, which is "
+        f"Answer the question using only the context below, which is "
         "already-redacted on-screen activity captured from the user's own "
-        "machines. Be specific about time and app when you can.\n\n"
+        f"machines. Be specific about time and app when you can. {EXPERT_PERSONA_INSTRUCTION}"
+        f"{MARKDOWN_INSTRUCTION}\n\n"
         f"Context:\n{chr(10).join(context_parts)}\n\nQuestion: {req.question}"
     )
-    answer = gateway.synthesize(prompt, max_tokens=400)
+    answer = gateway.synthesize(prompt, max_tokens=500)
+    postgres_store.save_conversation(req.track_id, "query", req.question, answer)
 
     return QueryResponse(answer=answer, sources=sources)
