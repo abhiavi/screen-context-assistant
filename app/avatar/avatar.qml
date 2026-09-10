@@ -440,7 +440,10 @@ Window {
             panelFlick.contentY = 0
             opacity = 1
             root.hasSomethingToShow = true
-            hideTimer.stop()  // browsing history doesn't auto-dismiss
+            hideTimer.restart()  // each scroll pushes the deadline out, so active
+                                  // browsing isn't interrupted, but it still
+                                  // auto-hides ~25s after the last scroll instead
+                                  // of staying open forever once you stop
             character.runJavaScript("setAvatarState('speaking')")
         }
         function leaveHistoryMode() {
