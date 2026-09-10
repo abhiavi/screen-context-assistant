@@ -25,6 +25,12 @@ from PySide6.QtWebEngineQuick import QtWebEngineQuick
 from app.avatar.vault_writer import append_entry
 
 CONFIG_PATH = Path.home() / ".config" / "screen-context-assistant" / "avatar.json"
+# Same path the capture agent (app/capture/agent.py) and
+# scripts/toggle_capture_pause.sh use - existence means paused. Just a
+# flag file, not IPC, since the avatar only needs to reflect capture's
+# state, not control it (upgrade roadmap "Now" item 3/6: "visible
+# companion state when paused").
+PAUSE_FLAG_PATH = Path.home() / ".config" / "screen-context-assistant" / "paused"
 
 DEFAULT_CONFIG = {
     "backend_base_url": "http://100.96.7.56:8089",
@@ -139,6 +145,7 @@ class Backend(QObject):
     answerFailed = Signal(str)
     activeScreenChanged = Signal(int)  # index into Qt.application.screens
     historyReady = Signal(str)  # raw JSON array from GET /history
+    capturePausedChanged = Signal(bool)
 
     def __init__(self, config: dict):
         super().__init__()
@@ -150,6 +157,13 @@ class Backend(QObject):
         self._idle_timer.setInterval(int(config["idle_poll_seconds"] * 1000))
         self._idle_timer.timeout.connect(self._check_idle_return)
         self._idle_timer.start()
+
+        self._last_paused: bool | None = None
+        self._pause_timer = QTimer(self)
+        self._pause_timer.setInterval(3000)
+        self._pause_timer.timeout.connect(self._check_paused)
+        self._pause_timer.start()
+        self._check_paused()
 
         self._vault_timer = QTimer(self)
         self._vault_timer.setInterval(int(config["vault_write_interval_seconds"] * 1000))
@@ -163,6 +177,12 @@ class Backend(QObject):
             QTimer.singleShot(300, lambda: self.activeScreenChanged.emit(config["preferred_screen_index"]))
         elif config.get("follow_active_screen", True):
             self._check_active_screen()  # place it correctly on first launch too
+
+    def _check_paused(self) -> None:
+        paused = PAUSE_FLAG_PATH.exists()
+        if paused != self._last_paused:
+            self._last_paused = paused
+            self.capturePausedChanged.emit(paused)
 
     def _check_active_screen(self) -> None:
         index = _active_window_screen_index()

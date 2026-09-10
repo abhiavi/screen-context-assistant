@@ -49,6 +49,10 @@ def main() -> None:
         "sensitive_tracks": [],
         "poll_interval_seconds": 2.0,
         "heartbeat_seconds": 60.0,
+        # Case-insensitive substring match against getwindowclassname -
+        # a match skips the screenshot entirely, not just the send.
+        # Common examples, not a guess at what you actually use - edit freely.
+        "excluded_apps": ["keepassxc", "bitwarden", "1password", "org.kde.kwalletmanager5"],
     }
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

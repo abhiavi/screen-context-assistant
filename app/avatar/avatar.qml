@@ -25,6 +25,7 @@ Window {
     readonly property int charSize: 240
     readonly property int collapsedCharSize: 72
     property bool hasSomethingToShow: false
+    property bool capturePaused: false
 
     // Starts small and out of the way ("should not come in maximum size
     // upfront") - a click expands it; it quietly re-collapses after a
@@ -87,6 +88,28 @@ Window {
         onContextMenuRequested: function(request) { request.accepted = true }
     }
 
+    // Visible companion state when paused (upgrade roadmap "Now" item
+    // 3/6) - a plain icon overlay rather than anything subtler, since the
+    // whole point is that pausing capture should never be silent. Shown
+    // regardless of collapsed/expanded state.
+    Rectangle {
+        visible: root.capturePaused
+        x: character.x + character.width - width + 4
+        y: character.y - 4
+        width: 22
+        height: 22
+        radius: 11
+        color: "#dc2626"
+        border.width: 2
+        border.color: Qt.rgba(1, 1, 1, 0.85)
+        Row {
+            anchors.centerIn: parent
+            spacing: 3
+            Rectangle { width: 3; height: 9; color: "white"; radius: 1 }
+            Rectangle { width: 3; height: 9; color: "white"; radius: 1 }
+        }
+    }
+
     // Declared as a SIBLING after (not nested inside) the WebEngineView -
     // belt-and-suspenders on top of the renderingType fix above.
     MouseArea {
@@ -146,6 +169,9 @@ Window {
         function onAnswerFailed(error) { panel.leaveHistoryMode(); panel.show("Couldn't reach the backend: " + error) }
         function onHistoryReady(jsonText) {
             panel.historyEntries = JSON.parse(jsonText)
+        }
+        function onCapturePausedChanged(paused) {
+            root.capturePaused = paused
         }
         function onRecallRequested() {
             root.expand()  // covers the proactive idle-return path too, which never goes through the character's own click handler

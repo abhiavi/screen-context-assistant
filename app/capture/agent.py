@@ -26,11 +26,19 @@ import io
 import os
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 import imagehash
 from PIL import Image
+
+# Shared with the avatar (which polls this same path to show a paused
+# indicator) and scripts/toggle_capture_pause.sh. Existence of the file
+# means paused - not its contents - so a plain `touch`/`rm` (or a KDE
+# global-shortcut custom command bound to the toggle script) is enough,
+# no IPC needed between the two separate processes.
+PAUSE_FLAG_PATH = Path.home() / ".config" / "screen-context-assistant" / "paused"
 
 try:
     import dbus
@@ -58,6 +66,15 @@ class CaptureConfig:
     sensitive_tracks: set[str]  # track_ids to flag sensitive=True (fully local, see plan §5)
     poll_interval_seconds: float = 2.0  # how often to check for a focus change
     heartbeat_seconds: float = 60.0  # force a capture even if focus hasn't changed
+    # Case-insensitive substring match against the window's app/class name
+    # (see kdotool getwindowclassname). A match skips the screenshot
+    # entirely - the frame is never taken, not just never sent - for
+    # password managers, banking, private-chat apps, etc. (upgrade
+    # roadmap "Now" item 3/6). Defaults are common examples, not a
+    # guess at what the Operator actually uses - edit freely.
+    excluded_apps: list[str] = field(
+        default_factory=lambda: ["keepassxc", "bitwarden", "1password", "org.kde.kwalletmanager5"]
+    )
 
 
 def _kdotool(*args: str) -> str:
@@ -153,7 +170,17 @@ class CaptureAgent:
             files={"frame": ("frame.png", frame_bytes, "image/png")},
         )
 
+    def is_paused(self) -> bool:
+        return PAUSE_FLAG_PATH.exists()
+
+    def is_excluded(self, app_name: str) -> bool:
+        app_lower = app_name.lower()
+        return any(pattern.lower() in app_lower for pattern in self.config.excluded_apps)
+
     def poll_once(self) -> None:
+        if self.is_paused():
+            return
+
         window_id, title, app_name = self.active_window_info()
         now = time.monotonic()
         focus_changed = window_id is not None and window_id != self._last_window_id
@@ -164,6 +191,13 @@ class CaptureAgent:
 
         self._last_window_id = window_id
         self._last_capture_time = now
+
+        if self.is_excluded(app_name):
+            # The screenshot is never taken for an excluded app - not just
+            # never sent - so there's no raw frame of it in memory at all,
+            # even transiently.
+            return
+
         frame = self.screenshot_active_window()
         self.maybe_send_frame(frame, app_name=app_name, window_title=title)
 

@@ -14,6 +14,8 @@ from pathlib import Path
 
 from app.capture.agent import CaptureAgent, CaptureConfig
 
+_DEFAULT_EXCLUDED_APPS = ["keepassxc", "bitwarden", "1password", "org.kde.kwalletmanager5"]
+
 CONFIG_PATH = Path.home() / ".config" / "screen-context-assistant" / "capture.json"
 
 
@@ -30,6 +32,7 @@ def load_config() -> CaptureConfig:
         sensitive_tracks=set(data.get("sensitive_tracks", [])),
         poll_interval_seconds=float(data.get("poll_interval_seconds", 2.0)),
         heartbeat_seconds=float(data.get("heartbeat_seconds", 60.0)),
+        excluded_apps=data.get("excluded_apps", _DEFAULT_EXCLUDED_APPS),
     )
 
 
