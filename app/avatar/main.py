@@ -32,14 +32,13 @@ DEFAULT_CONFIG = {
     "idle_threshold_seconds": 300,
     "vault_write_interval_seconds": 900,
     "avatar_id": "haru",
-    # On by default, but only checked at idle-return, not on a continuous
-    # timer. The original version polled every 4s and relocated on every
-    # active-window change, which meant jumping onto whatever monitor the
-    # Operator had just switched to mid-work - the actual complaint
-    # (2026-09-10) wasn't "following" itself, which was liked, just that
-    # cadence. Tying it to idle-return keeps it meeting you where you sat
-    # back down without ever moving while you're actively working.
-    "follow_active_screen": True,
+    # Off by default (2026-09-10, final call after trying both a
+    # continuous-poll version and an idle-return-only version - Operator
+    # doesn't want the avatar moving to another monitor at all). The
+    # idle-return-triggered code path still exists below and is harmless
+    # to re-enable via config if wanted again, but don't flip this default
+    # without being asked.
+    "follow_active_screen": False,
     # Optional one-time placement instead: index into Qt.application.screens
     # (0-based) to pin the avatar to a specific monitor and disable
     # following entirely. Leave null to use follow_active_screen above.
