@@ -134,6 +134,19 @@ reference) — plausible and discriminating (verified by hand: it correctly
 flagged speculative/advisory statements as unsupported while confirming
 concrete factual ones, not just returning uniform scores).
 
+**Thematic project clustering** (upgrade-roadmap "Next" phase, 2026-09-10):
+`scripts/cluster_sessions.py`, cron daily at 03:20 on aws-01, groups
+`sessions` rows into `activity_clusters` by embedding similarity per track
+(`sklearn.cluster.HDBSCAN` over mean-pooled per-session vectors) rather than
+time adjacency — so a project worked on in two separate sittings, with
+unrelated work or a multi-day gap in between, gets recognized as the same
+thing instead of reading as disconnected sessions. Idempotent across reruns
+via session-membership matching (HDBSCAN's own cluster numbering isn't
+stable between fits). `/recall` surfaces the most recent multi-session
+cluster for a track in both its synthesized text and structured
+`project_label`/`project_summary` response fields. Needs `numpy` +
+`scikit-learn` (aws-01 only — mini's avatar/capture venv doesn't run this).
+
 **LiteLLM key is scoped** (`LITELLM_API_KEY` in `.env`) — `$20/30d` budget,
 60 rpm / 100k tpm, restricted to exactly the three models this app uses
 (`text-embedding-004`, `qwen-vl-ocr`, `glm-4.7`). This was flagged as a
@@ -353,6 +366,17 @@ call) would allow them through.
 
 ## Known limitations
 
+- **A real credential leaked through redaction on 2026-09-10** — `sshpass
+  -p 'PASSWORD' ssh root@...` (space-separated CLI flag, not `key=value`)
+  wasn't covered by any existing pattern and reached a hosted LLM call
+  before being caught by manual testing. Fixed (`sshpass_flag`,
+  `long_password_flag`, `basic_auth_url` patterns added to
+  `app/ingest/redact.py`; the 37 affected Qdrant points and 1 Postgres row
+  were scrubbed), but recorded here as a reminder that the pattern set is
+  necessarily incomplete — it's been extended twice now (this, plus the
+  original set) by discovering gaps after the fact, not by exhaustive
+  design. Treat the per-Activity `sensitive` flag as the real backstop for
+  high-risk tracks, not redaction alone — see the next bullet.
 - Redaction operates on OCR output, not the raw pixels — an OCR
   misread can occasionally fragment or garble a secret enough to dodge a
   regex (verified: crisp, normally-rendered screenshot text OCRs cleanly;
