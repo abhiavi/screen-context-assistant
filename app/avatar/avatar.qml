@@ -78,6 +78,13 @@ Window {
         y: root.height - height - (root.expanded ? 56 : 20)  // leave room for the ask bar once expanded
         backgroundColor: "transparent"
         url: Qt.resolvedUrl("live2d_view.html?avatar=" + root.currentAvatarId)
+        // The embedded browser view intercepts right-click for its own
+        // native context menu (Reload/Inspect/etc.) before our sibling
+        // MouseArea ever sees it - confirmed live: right-click-to-move-
+        // corners silently did nothing (Operator report, 2026-09-10).
+        // Suppress that menu outright rather than relying on it never
+        // appearing.
+        onContextMenuRequested: function(request) { request.accepted = true }
     }
 
     // Declared as a SIBLING after (not nested inside) the WebEngineView -
@@ -87,14 +94,18 @@ Window {
         y: character.y
         width: character.width
         height: character.height
-        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         onClicked: function(mouse) {
             if (!root.expanded) {
                 root.expand()  // first click just opens it, doesn't also trigger a recall
                 return
             }
             collapseTimer.restart()
-            if (mouse.button === Qt.RightButton) {
+            if (mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.ControlModifier)) {
+                // Move to a new corner. Was right-click - moved off it
+                // since that never reached this handler (see the
+                // suppressed contextMenuRequested above); Ctrl+click routes
+                // through the same LeftButton path already proven to work.
                 var lane = root.width - root.charSize
                 root.charX = Math.random() * lane
             } else if (mouse.button === Qt.MiddleButton) {

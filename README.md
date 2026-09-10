@@ -136,9 +136,14 @@ space upfront — the **first click** on it just expands it to full size
 scroll-wheel history browse also auto-expands it. It quietly re-collapses
 after ~45s of no engagement (no panel showing, ask bar not focused).
 
-Once expanded: **left-click** triggers an on-demand recall. **Right-click**
-cycles it to the next screen corner. **Middle-click** cycles to the next
-available Live2D character. There is no free-drag: Wayland gives
+Once expanded: **left-click** triggers an on-demand recall. **Ctrl+click**
+cycles it to the next screen corner (not right-click — the embedded browser
+view intercepts right-click for its own native context menu before it ever
+reaches our handler, confirmed live: right-click silently did nothing;
+that menu is now suppressed outright via `onContextMenuRequested`, and
+corner-cycling moved to Ctrl+click, which reuses the already-working
+left-click path). **Middle-click** cycles to the next available Live2D
+character. There is no free-drag: Wayland gives
 layer-shell surfaces edge-relative `anchors`/`margins` positioning, not
 arbitrary x/y, and `QMargins` isn't a QML-constructible value type — so
 per the plan's own suggested fallback, this degrades to **edge-docked with
@@ -162,7 +167,7 @@ cycle automatically — no code changes needed.
 defaults to **off** — final call (2026-09-10) after trying both a
 continuous 4s poll and an idle-return-only version; the Operator doesn't
 want the avatar relocating to another monitor at all. It now just stays
-wherever the compositor places it at launch. Right-click still cycles it
+wherever the compositor places it at launch. Ctrl+click still cycles it
 between corners on its current monitor. The idle-return-triggered follow
 code (`_check_active_screen`, called from `_check_idle_return`) still
 exists and is harmless to re-enable via `"follow_active_screen": true` if
