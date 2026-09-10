@@ -343,6 +343,24 @@ Window {
                 onStatusChanged: if (status === Loader.Error)
                     console.log("real blur unavailable, using simulated glass")
             }
+
+            // The compositor-side blur region set below is NOT tied to Qt's
+            // own opacity/rendering - set_blur_region() persists on KWin's
+            // side until explicitly cleared, regardless of whether this
+            // Rectangle is still drawing anything. Without this binding,
+            // panel.hide() (opacity -> 0) makes Qt stop rendering the panel
+            // but leaves the compositor blurring that screen region
+            // forever - confirmed live (2026-09-10): a panel shown once,
+            // then correctly hidden by hideTimer, still had a visibly
+            // blurred rectangle sitting on the desktop hours later, with no
+            // panel content in it at all, because BackgroundBlur.active was
+            // never set to false to make it call clearRegion().
+            Binding {
+                target: waylandBlurLoader.item
+                property: "active"
+                value: panel.opacity > 0
+                when: waylandBlurLoader.item !== null
+            }
         }
 
         Rectangle {
