@@ -47,6 +47,27 @@ class DigestEntry(BaseModel):
     summary: str
 
 
+class SessionEntry(BaseModel):
+    id: int
+    track_id: str
+    app_name: str | None
+    window_title: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    frame_count: int
+    cluster_id: int | None
+
+
+class ClusterEntry(BaseModel):
+    id: int
+    track_id: str
+    label: str
+    summary: str | None
+    session_count: int
+    first_seen: datetime
+    last_seen: datetime
+
+
 class ConversationEntry(BaseModel):
     id: int
     track_id: str | None
@@ -74,6 +95,25 @@ MARKDOWN_INSTRUCTION = (
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/sessions", response_model=list[SessionEntry])
+def sessions(track_id: str | None = None, hours: int = 24) -> list[SessionEntry]:
+    """Raw session rows in the trailing window - read-only, no synthesis.
+    Added for app/mcp_server.py (upgrade roadmap "Next": MCP read-only
+    agent), so another agent can inspect what actually happened without
+    triggering a synthesis call for every question."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = postgres_store.sessions_since(cutoff, track_id=track_id)
+    return [SessionEntry(**row) for row in rows]
+
+
+@app.get("/clusters", response_model=list[ClusterEntry])
+def clusters(track_id: str | None = None, limit: int = 20) -> list[ClusterEntry]:
+    """Recognized recurring projects (scripts/cluster_sessions.py) - same
+    read-only rationale as /sessions above."""
+    rows = postgres_store.list_clusters(track_id=track_id, limit=limit)
+    return [ClusterEntry(**row) for row in rows]
 
 
 @app.get("/history", response_model=list[ConversationEntry])

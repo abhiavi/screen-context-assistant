@@ -158,6 +158,18 @@ def upsert_cluster(
         return cluster_id
 
 
+def list_clusters(track_id: str | None = None, limit: int = 20):
+    with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if track_id:
+            cur.execute(
+                "SELECT * FROM activity_clusters WHERE track_id = %s ORDER BY last_seen DESC LIMIT %s",
+                (track_id, limit),
+            )
+        else:
+            cur.execute("SELECT * FROM activity_clusters ORDER BY last_seen DESC LIMIT %s", (limit,))
+        return cur.fetchall()
+
+
 def latest_cluster_for_track(track_id: str):
     """Most recent activity_cluster with a session in this track, if any -
     used by /recall to mention "this connects to your ongoing work on X"

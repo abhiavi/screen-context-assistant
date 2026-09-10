@@ -81,6 +81,7 @@ bash scripts/init_storage.sh          # docker compose up postgres+qdrant, apply
 source .venv/bin/activate
 python -m uvicorn app.api.ingest_service:app --host $BIND_HOST --port 8088
 python -m uvicorn app.api.rag_service:app --host $BIND_HOST --port 8089
+PYTHONPATH=. python -m app.mcp_server              # read-only MCP server, port 8090
 ```
 
 **Maintenance jobs run via cron on aws-01** (`crontab -l` to inspect; both
@@ -146,6 +147,26 @@ stable between fits). `/recall` surfaces the most recent multi-session
 cluster for a track in both its synthesized text and structured
 `project_label`/`project_summary` response fields. Needs `numpy` +
 `scikit-learn` (aws-01 only — mini's avatar/capture venv doesn't run this).
+
+**Read-only MCP server** (upgrade-roadmap "Next" phase, 2026-09-10):
+`app/mcp_server.py`, port 8090 on aws-01, exposes six tools —
+`recall`, `query`, `digest`, `list_sessions`, `list_clusters`,
+`conversation_history` — each a thin proxy around the matching rag_service
+HTTP endpoint, so another Claude/AGY session anywhere on the Tailscale mesh
+can ask "what has the Operator been working on" directly instead of
+SSHing in and reconstructing it from Postgres/Qdrant by hand. Deliberately
+read-only — no tool pauses capture, changes config, or writes anything;
+full autonomous GUI *action* (the upgrade roadmap's UI-TARS section) is a
+separate, much bigger, not-yet-taken step. Uses the `mcp` SDK's
+streamable-http transport (`mcp>=2.0` — the `FastMCP` class from `mcp<2`
+was renamed to `MCPServer` with a different import path,
+`mcp.server.mcpserver`). To connect from another Claude Code session on
+the mesh:
+```bash
+claude mcp add --transport http screen-context http://100.96.7.56:8090/mcp
+```
+Verified live with the real MCP Python client (protocol handshake +
+`list_tools` + `call_tool`), not just an HTTP smoke test.
 
 **End-of-day digest** (upgrade-roadmap "Next" phase, 2026-09-10): `GET
 /digest?hours=24` on the RAG service synthesizes a broader "here's your

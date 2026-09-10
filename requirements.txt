@@ -1,6 +1,7 @@
 fastapi==0.141.1
 httpx==0.28.1
 ImageHash==4.3.2
+mcp==2.2.0
 numpy==2.5.3
 pillow==12.3.0
 psycopg2-binary==2.9.12
