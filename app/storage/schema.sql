@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS tracks (
 CREATE TABLE IF NOT EXISTS sessions (
     id              BIGSERIAL PRIMARY KEY,
     track_id        TEXT NOT NULL REFERENCES tracks(track_id),
-    host            TEXT NOT NULL,          -- desktop | laptop
+    host            TEXT NOT NULL,          -- mini (only capture host as of the v4 re-scope; desktop/laptop retired)
     app_name        TEXT,
     window_title    TEXT,                   -- redacted before insert
     started_at      TIMESTAMPTZ NOT NULL,
@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_track_time ON sessions (track_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions (started_at);
+-- Lets scripts/segment_sessions.py upsert idempotently (ON CONFLICT) when
+-- re-clustering an overlapping trailing window on every run.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_track_started ON sessions (track_id, started_at);
 
 CREATE TABLE IF NOT EXISTS app_switch_events (
     id              BIGSERIAL PRIMARY KEY,

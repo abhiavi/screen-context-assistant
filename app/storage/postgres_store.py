@@ -59,6 +59,41 @@ def end_session(session_id: int, ended_at: datetime, frame_count: int) -> None:
         )
 
 
+def upsert_session(
+    *, track_id: str, host: str, app_name: str | None, window_title_redacted: str | None,
+    started_at: datetime, ended_at: datetime, frame_count: int, sensitive: bool = False,
+) -> int:
+    """Idempotent counterpart to start_session/end_session for the batch
+    segmentation job (scripts/segment_sessions.py), which re-clusters a
+    trailing window on every run - the same session can be seen (and
+    should be merged, not duplicated) across multiple runs as new frames
+    extend it. Relies on the unique (track_id, started_at) index in
+    schema.sql: re-segmenting the same cluster reproduces the same
+    started_at (the earliest frame's timestamp) as long as no new,
+    earlier frame appears in that window, which the gap-based clustering
+    guarantees."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO sessions (track_id, host, app_name, window_title, started_at, ended_at, frame_count, sensitive)
+            VALUES (%(track_id)s, %(host)s, %(app_name)s, %(window_title)s, %(started_at)s, %(ended_at)s, %(frame_count)s, %(sensitive)s)
+            ON CONFLICT (track_id, started_at) DO UPDATE SET
+                ended_at = GREATEST(sessions.ended_at, EXCLUDED.ended_at),
+                frame_count = EXCLUDED.frame_count,
+                app_name = EXCLUDED.app_name,
+                window_title = EXCLUDED.window_title,
+                sensitive = sessions.sensitive OR EXCLUDED.sensitive
+            RETURNING id
+            """,
+            {
+                "track_id": track_id, "host": host, "app_name": app_name,
+                "window_title": window_title_redacted, "started_at": started_at,
+                "ended_at": ended_at, "frame_count": frame_count, "sensitive": sensitive,
+            },
+        )
+        return cur.fetchone()[0]
+
+
 def log_app_switch(session_id: int, app_name: str, window_title_redacted: str, occurred_at: datetime) -> None:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

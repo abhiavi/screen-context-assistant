@@ -101,9 +101,11 @@ def recent_points(
     client: QdrantClient | None = None,
 ):
     """Most recent frames, newest first. Used to reconstruct "the last
-    session" on the fly for avatar recall (plan v4) since nothing currently
-    populates the Postgres sessions table - Qdrant's timestamped payloads
-    are the only real session-boundary signal that exists today."""
+    session" on the fly for avatar recall (plan v4). scripts/segment_sessions.py
+    now also populates the Postgres sessions table on a cron schedule, but
+    this on-the-fly path stays as the fallback for anything in the last
+    ~15min the cron job hasn't segmented yet - kept deliberately independent
+    of Postgres so /recall never depends on the cron job having run."""
     client = client or get_client()
     query_filter = None
     if track_id:
@@ -116,6 +118,31 @@ def recent_points(
         with_vectors=False,
     )
     return sorted(points, key=lambda p: p.payload.get("timestamp", 0), reverse=True)
+
+
+def points_since(cutoff_timestamp: int, client: QdrantClient | None = None):
+    """All frames (any track) newer than cutoff_timestamp, oldest-first.
+    Paginates through Qdrant's scroll API rather than relying on a single
+    large limit - used by scripts/segment_sessions.py, which may cover a
+    24h window across every track at once."""
+    client = client or get_client()
+    query_filter = qm.Filter(must=[qm.FieldCondition(key="timestamp", range=qm.Range(gte=cutoff_timestamp))])
+    all_points = []
+    offset = None
+    while True:
+        points, next_offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=query_filter,
+            limit=500,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        all_points.extend(points)
+        if next_offset is None:
+            break
+        offset = next_offset
+    return sorted(all_points, key=lambda p: p.payload.get("timestamp", 0))
 
 
 def purge_older_than(days: int, client: QdrantClient | None = None) -> None:

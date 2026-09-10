@@ -83,7 +83,25 @@ python -m uvicorn app.api.ingest_service:app --host $BIND_HOST --port 8088
 python -m uvicorn app.api.rag_service:app --host $BIND_HOST --port 8089
 ```
 
-Retention (cron daily): `python scripts/retention_rollup.py`
+**Maintenance jobs run via cron on aws-01** (`crontab -l` to inspect; both
+need `PYTHONPATH=/home/ubuntu/screen-context-assistant` and to run from the
+repo root — neither script adds the repo root to `sys.path` itself):
+- Retention, daily at 03:00: `scripts/retention_rollup.py` — purges
+  frame-level Qdrant vectors older than `FRAME_VECTOR_RETENTION_DAYS`. This
+  was documented as "run daily via cron" since the v3 build but had no
+  actual crontab entry until 2026-09-10 — was silently never running.
+- Session segmentation, every 15min: `scripts/segment_sessions.py`
+  (upgrade-roadmap "Now" item 5, 2026-09-10) — gap-clusters the trailing
+  24h of Qdrant frames per track (same `SESSION_GAP_SECONDS` = 5min as
+  `/recall`'s on-the-fly clustering) and upserts into the Postgres
+  `sessions` table via `postgres_store.upsert_session` (idempotent — a
+  unique `(track_id, started_at)` index lets re-clustering an overlapping
+  window extend an existing row instead of duplicating it). That table had
+  existed in `schema.sql` since the v3 build with nothing ever writing to
+  it. `/recall`'s on-the-fly Qdrant clustering (`qdrant_store.recent_points`)
+  is kept as-is and still runs on every request — deliberately not made to
+  depend on this cron job, so recall never has a multi-minute blind spot for
+  whatever's happened since the last run. Logs: `data/segment_sessions.log`.
 
 **LiteLLM key is scoped** (`LITELLM_API_KEY` in `.env`) — `$20/30d` budget,
 60 rpm / 100k tpm, restricted to exactly the three models this app uses
