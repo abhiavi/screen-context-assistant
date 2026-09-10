@@ -147,6 +147,24 @@ cluster for a track in both its synthesized text and structured
 `project_label`/`project_summary` response fields. Needs `numpy` +
 `scikit-learn` (aws-01 only — mini's avatar/capture venv doesn't run this).
 
+**End-of-day digest** (upgrade-roadmap "Next" phase, 2026-09-10): `GET
+/digest?hours=24` on the RAG service synthesizes a broader "here's your
+day" recap across every session in the trailing window per track — unlike
+`/recall`, which only ever reconstructs the single most recent contiguous
+session. Finally populates `track_daily_rollups`, which has existed in
+`schema.sql` since the v3 build with nothing writing to it. The avatar
+(mini) calls this once a day (`digest_hour` in `avatar.json`, default 22:00
+local, checked every `digest_check_interval_seconds`) and writes each
+track's summary into the Obsidian vault via the same `append_entry()`
+already used by the periodic vault writer — this is a separate, coarser
+pass, not a replacement for it. Verified live end-to-end against real data.
+
+**LiteLLM gateway retries once on transport errors** (`app/ingest/gateway.py`,
+2026-09-10) — connection-refused/reset failures under normal (non-bursty)
+call volume showed up independently in three unrelated call sites in one
+day. One retry after a 1.5s pause covers the common case without masking a
+sustained real outage (a second failure still raises normally).
+
 **LiteLLM key is scoped** (`LITELLM_API_KEY` in `.env`) — `$20/30d` budget,
 60 rpm / 100k tpm, restricted to exactly the three models this app uses
 (`text-embedding-004`, `qwen-vl-ocr`, `glm-4.7`). This was flagged as a
