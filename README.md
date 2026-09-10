@@ -85,6 +85,16 @@ python -m uvicorn app.api.rag_service:app --host $BIND_HOST --port 8089
 
 Retention (cron daily): `python scripts/retention_rollup.py`
 
+**LiteLLM key is scoped** (`LITELLM_API_KEY` in `.env`) — `$20/30d` budget,
+60 rpm / 100k tpm, restricted to exactly the three models this app uses
+(`text-embedding-004`, `qwen-vl-ocr`, `glm-4.7`). This was flagged as a
+deviation early on (the gateway was believed not to support scoped keys) —
+turned out `POST /key/generate` on the gateway works fine and is
+Postgres-backed, so this is resolved, not an accepted exception anymore. A
+copy of the key also lives at `~/.screen-context-litellm-scoped.key` on
+aws-01. Regenerate via the same `/key/generate` call (needs the gateway's
+master key) if it's ever lost or needs rotating.
+
 ### Capture agent (mini only)
 
 ```bash
