@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWebEngineQuick import QtWebEngineQuick
 
+from app.avatar.proactivity import should_fire_proactive_recall
 from app.avatar.vault_writer import append_entry
 
 CONFIG_PATH = Path.home() / ".config" / "screen-context-assistant" / "avatar.json"
@@ -37,6 +39,15 @@ DEFAULT_CONFIG = {
     "backend_base_url": "http://100.96.7.56:8089",
     "idle_poll_seconds": 5,
     "idle_threshold_seconds": 300,
+    # Minimum gap between proactive ("welcome back") recalls, regardless of
+    # how many idle->active transitions fire in that window. Added
+    # 2026-09-10 after finding 6 proactive recalls fired within 68 seconds
+    # in real usage (systemd-logind's IdleHint flapping true/false rapidly
+    # for reasons outside this app's control - not root-caused, and not
+    # something to chase further given it's OS/session-manager behavior,
+    # not app logic) - this is the calibration that actually matters:
+    # without it, idle-detection flakiness directly spams the Operator.
+    "proactive_recall_cooldown_seconds": 600,
     "vault_write_interval_seconds": 900,
     # Local hour (0-23) to write the once-daily end-of-day digest (GET
     # /digest, broader-scope than the periodic vault writer above - covers
@@ -185,6 +196,7 @@ class Backend(QObject):
         self._digest_timer.timeout.connect(self._check_digest)
         self._digest_timer.start()
 
+        self._last_proactive_recall_at: float | None = None
         self._last_screen_index: int | None = None
         if config.get("preferred_screen_index") is not None:
             # Explicit pin takes priority - one-time placement, not
@@ -206,8 +218,10 @@ class Backend(QObject):
             self.activeScreenChanged.emit(index)
 
     def _check_idle_return(self) -> None:
-        if self._idle.just_returned():
-            self.requestRecall("", proactive=True)
+        returned = self._idle.just_returned()  # has a side effect (updates
+                                                 # internal was-idle state) -
+                                                 # call exactly once per tick
+        if returned:
             # Relocate to wherever the Operator actually is *only* at this
             # natural "just sat back down" moment - not on a continuous
             # timer. The earlier always-on 4s poll was relocating mid-work
@@ -215,8 +229,19 @@ class Backend(QObject):
             # exactly the "gets in the way of other apps" complaint. Tying
             # it to idle-return keeps the liked behavior (it meets you where
             # you are) without ever moving while you're actively working.
+            # Kept ungated by the recall cooldown below - it's a cheap,
+            # idempotent no-op if the screen hasn't actually changed, unlike
+            # firing a full recall (synthesis call + vault write).
             if self.config.get("preferred_screen_index") is None and self.config.get("follow_active_screen", True):
                 self._check_active_screen()
+
+        seconds_since_last = (
+            time.monotonic() - self._last_proactive_recall_at
+            if self._last_proactive_recall_at is not None else None
+        )
+        if should_fire_proactive_recall(returned, seconds_since_last, self.config["proactive_recall_cooldown_seconds"]):
+            self._last_proactive_recall_at = time.monotonic()
+            self.requestRecall("", proactive=True)
 
     def _check_digest(self) -> None:
         today = date.today()
