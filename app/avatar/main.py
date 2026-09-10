@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 import dbus
@@ -37,6 +38,14 @@ DEFAULT_CONFIG = {
     "idle_poll_seconds": 5,
     "idle_threshold_seconds": 300,
     "vault_write_interval_seconds": 900,
+    # Local hour (0-23) to write the once-daily end-of-day digest (GET
+    # /digest, broader-scope than the periodic vault writer above - covers
+    # every session of the day, not just the latest one). Checked every
+    # digest_check_interval_seconds rather than fired at an exact instant,
+    # since QTimer has no wall-clock-time mode; _last_digest_date guards
+    # against firing more than once on the same day.
+    "digest_hour": 22,
+    "digest_check_interval_seconds": 600,
     "avatar_id": "haru",
     # Off by default (2026-09-10, final call after trying both a
     # continuous-poll version and an idle-return-only version - Operator
@@ -170,6 +179,12 @@ class Backend(QObject):
         self._vault_timer.timeout.connect(lambda: self.requestRecall("", for_vault=True))
         self._vault_timer.start()
 
+        self._last_digest_date: date | None = None
+        self._digest_timer = QTimer(self)
+        self._digest_timer.setInterval(int(config["digest_check_interval_seconds"] * 1000))
+        self._digest_timer.timeout.connect(self._check_digest)
+        self._digest_timer.start()
+
         self._last_screen_index: int | None = None
         if config.get("preferred_screen_index") is not None:
             # Explicit pin takes priority - one-time placement, not
@@ -202,6 +217,42 @@ class Backend(QObject):
             # you are) without ever moving while you're actively working.
             if self.config.get("preferred_screen_index") is None and self.config.get("follow_active_screen", True):
                 self._check_active_screen()
+
+    def _check_digest(self) -> None:
+        today = date.today()
+        if today == self._last_digest_date:
+            return
+        if datetime.now().hour < self.config["digest_hour"]:
+            return
+        self._last_digest_date = today  # set before the reply lands - a slow/failed
+                                         # request shouldn't cause a retry storm every
+                                         # 10min for the rest of the day
+        self.requestDigest()
+
+    @Slot()
+    def requestDigest(self) -> None:
+        """Broader-scope end-of-day recap (GET /digest) - unlike the
+        periodic vault writer (requestRecall(for_vault=True), which just
+        replays the latest session every ~15min), this covers every
+        session of the day at once. Called by _check_digest once a day;
+        also callable directly for a manual test."""
+        request = QNetworkRequest(QUrl(f"{self.config['backend_base_url']}/digest?hours=24"))
+        reply = self._net.get(request)
+        reply.finished.connect(lambda: self._on_digest_reply(reply))
+
+    def _on_digest_reply(self, reply: QNetworkReply) -> None:
+        if reply.error() != QNetworkReply.NetworkError.NoError:
+            reply.deleteLater()
+            return
+        try:
+            entries = json.loads(bytes(reply.readAll().data()))
+        except Exception:  # noqa: BLE001
+            reply.deleteLater()
+            return
+        reply.deleteLater()
+        for entry in entries:
+            app_names = ", ".join(entry.get("app_names") or [])
+            append_entry(entry["track_id"], app_names or None, entry["summary"])
 
     @Slot(str)
     def requestRecall(self, track_id: str = "", proactive: bool = False, for_vault: bool = False) -> None:

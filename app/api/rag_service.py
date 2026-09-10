@@ -3,7 +3,7 @@ top-k from Qdrant + Postgres rows -> synthesis via SYNTHESIS_MODEL. Bound to
 the Tailscale IP only."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -37,6 +37,14 @@ class RecallResponse(BaseModel):
     frame_count: int
     project_label: str | None = None
     project_summary: str | None = None
+
+
+class DigestEntry(BaseModel):
+    track_id: str
+    app_names: list[str]
+    session_count: int
+    total_seconds: int
+    summary: str
 
 
 class ConversationEntry(BaseModel):
@@ -142,6 +150,76 @@ def recall(track_id: str | None = None) -> RecallResponse:
         project_label=cluster["label"] if cluster and cluster["session_count"] > 1 else None,
         project_summary=cluster["summary"] if cluster and cluster["session_count"] > 1 else None,
     )
+
+
+@app.get("/digest", response_model=list[DigestEntry])
+def digest(hours: int = 24) -> list[DigestEntry]:
+    """Broader-scope "here's your day" recap across every session in the
+    trailing window, for every track that had any - unlike /recall (which
+    only ever reconstructs the single most recent contiguous session),
+    this covers everything, session by session, and is meant to be called
+    once a day rather than on-demand. Populates track_daily_rollups
+    (existed in schema.sql since the v3 build, never written to before
+    this) as a side effect; the caller (main.py on mini, which has vault
+    filesystem access this backend doesn't) is responsible for writing the
+    returned summaries into the Obsidian vault."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    track_ids = postgres_store.known_tracks_with_recent_sessions(cutoff)
+
+    entries = []
+    for track_id in track_ids:
+        sessions = [s for s in postgres_store.sessions_since(cutoff, track_id=track_id)]
+        if not sessions:
+            continue
+
+        total_seconds = sum(
+            int(((s["ended_at"] or s["started_at"]) - s["started_at"]).total_seconds())
+            for s in sessions
+        )
+        app_names = sorted({s["app_name"] for s in sessions if s["app_name"]})
+
+        lines = [
+            f"- {s['started_at']:%H:%M}-{(s['ended_at'] or s['started_at']):%H:%M} "
+            f"[{s['app_name']}] {s['window_title'] or ''}"
+            for s in sessions
+        ]
+        cluster_names = sorted({
+            postgres_store.cluster_for_session(s["id"])["label"]
+            for s in sessions
+            if postgres_store.cluster_for_session(s["id"])
+        })
+        cluster_context = (
+            f"\n\nRecurring projects touched today: {', '.join(cluster_names)}."
+            if cluster_names else ""
+        )
+
+        prompt = (
+            "Write a short end-of-day recap (3-6 sentences, or a brief "
+            "bullet list if the day covered clearly distinct chunks of "
+            f"work) of this activity. {EXPERT_PERSONA_INSTRUCTION}"
+            "Base this only on the already-redacted session log below, "
+            f"captured from the user's own screen (track: {track_id})."
+            f"{cluster_context} {MARKDOWN_INSTRUCTION}\n\n" + "\n".join(lines)
+        )
+        summary = gateway.synthesize(prompt, max_tokens=280)
+
+        postgres_store.upsert_daily_rollup(
+            track_id=track_id,
+            day=date.today(),
+            total_seconds=total_seconds,
+            session_count=len(sessions),
+            summary=summary,
+        )
+
+        entries.append(DigestEntry(
+            track_id=track_id,
+            app_names=app_names,
+            session_count=len(sessions),
+            total_seconds=total_seconds,
+            summary=summary,
+        ))
+
+    return entries
 
 
 @app.post("/query", response_model=QueryResponse)

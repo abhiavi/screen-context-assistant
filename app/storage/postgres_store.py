@@ -172,6 +172,29 @@ def latest_cluster_for_track(track_id: str):
         return cur.fetchone()
 
 
+def known_tracks_with_recent_sessions(since: datetime) -> list[str]:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT track_id FROM sessions WHERE started_at >= %s", (since,))
+        return [row[0] for row in cur.fetchall()]
+
+
+def upsert_daily_rollup(
+    *, track_id: str, day, total_seconds: int, session_count: int, summary: str,
+) -> None:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO track_daily_rollups (track_id, day, total_seconds, session_count, summary)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (track_id, day) DO UPDATE SET
+                total_seconds = EXCLUDED.total_seconds,
+                session_count = EXCLUDED.session_count,
+                summary = EXCLUDED.summary
+            """,
+            (track_id, day, total_seconds, session_count, summary),
+        )
+
+
 def cluster_for_session(session_id: int):
     with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(

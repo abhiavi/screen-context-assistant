@@ -9,6 +9,8 @@ module for why.
 """
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from app.config import settings
@@ -22,12 +24,24 @@ _client = httpx.Client(
 )
 
 
+def _post(path: str, json_body: dict) -> httpx.Response:
+    """The gateway has shown intermittent connection-refused/reset
+    failures under normal (non-bursty) call volume - seen independently in
+    three unrelated call sites in one day (2026-09-10: a manual segment
+    test, the /digest endpoint, and earlier the ragas eval harness's much
+    higher-volume case, which already got its own local retry). One retry
+    after a short pause covers the common case without masking a real,
+    sustained outage - a second failure still raises normally."""
+    try:
+        return _client.post(path, json=json_body)
+    except httpx.TransportError:
+        time.sleep(1.5)
+        return _client.post(path, json=json_body)
+
+
 def embed(text: str) -> list[float]:
     assert_clean(text)
-    resp = _client.post(
-        "/embeddings",
-        json={"model": settings.embedding_model, "input": text},
-    )
+    resp = _post("/embeddings", {"model": settings.embedding_model, "input": text})
     ok = resp.is_success
     body = resp.json() if ok else None
     audit_log.record("embed", settings.embedding_model, text, body, ok)
@@ -37,14 +51,11 @@ def embed(text: str) -> list[float]:
 
 def synthesize(prompt: str, *, max_tokens: int = 300) -> str:
     assert_clean(prompt)
-    resp = _client.post(
-        "/chat/completions",
-        json={
-            "model": settings.synthesis_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-        },
-    )
+    resp = _post("/chat/completions", {
+        "model": settings.synthesis_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+    })
     ok = resp.is_success
     body = resp.json() if ok else None
     audit_log.record("synthesize", settings.synthesis_model, prompt, body, ok)
@@ -57,25 +68,22 @@ def describe_redacted_frame(redacted_frame_b64_png: str, question: str) -> str:
     are responsible for redacting the image itself (e.g. blackout boxes)
     before this is invoked - this function only guards the text prompt."""
     assert_clean(question)
-    resp = _client.post(
-        "/chat/completions",
-        json={
-            "model": settings.vision_model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": question},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{redacted_frame_b64_png}"},
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 200,
-        },
-    )
+    resp = _post("/chat/completions", {
+        "model": settings.vision_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{redacted_frame_b64_png}"},
+                    },
+                ],
+            }
+        ],
+        "max_tokens": 200,
+    })
     ok = resp.is_success
     body = resp.json() if ok else None
     # NOTE: audits the text prompt only, same as every other entry - the
