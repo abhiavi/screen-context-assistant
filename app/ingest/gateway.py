@@ -2,12 +2,17 @@
 and MUST only ever receive already-redacted text (plan §5 transmission
 boundary). Each entry point re-asserts cleanliness as a hard gate - this is
 deliberate defense-in-depth, not redundancy to be "simplified" away.
+
+Every call is also recorded to the audit log (app/ingest/audit_log.py)
+after this module already knows it passed the redaction gate - see that
+module for why.
 """
 from __future__ import annotations
 
 import httpx
 
 from app.config import settings
+from app.ingest import audit_log
 from app.ingest.redact import assert_clean
 
 _client = httpx.Client(
@@ -23,8 +28,11 @@ def embed(text: str) -> list[float]:
         "/embeddings",
         json={"model": settings.embedding_model, "input": text},
     )
+    ok = resp.is_success
+    body = resp.json() if ok else None
+    audit_log.record("embed", settings.embedding_model, text, body, ok)
     resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
+    return body["data"][0]["embedding"]
 
 
 def synthesize(prompt: str, *, max_tokens: int = 300) -> str:
@@ -37,8 +45,11 @@ def synthesize(prompt: str, *, max_tokens: int = 300) -> str:
             "max_tokens": max_tokens,
         },
     )
+    ok = resp.is_success
+    body = resp.json() if ok else None
+    audit_log.record("synthesize", settings.synthesis_model, prompt, body, ok)
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    return body["choices"][0]["message"]["content"]
 
 
 def describe_redacted_frame(redacted_frame_b64_png: str, question: str) -> str:
@@ -65,5 +76,11 @@ def describe_redacted_frame(redacted_frame_b64_png: str, question: str) -> str:
             "max_tokens": 200,
         },
     )
+    ok = resp.is_success
+    body = resp.json() if ok else None
+    # NOTE: audits the text prompt only, same as every other entry - the
+    # image itself is the caller's redaction responsibility (see docstring)
+    # and isn't hashed/logged here.
+    audit_log.record("vision", settings.vision_model, question, body, ok)
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    return body["choices"][0]["message"]["content"]
