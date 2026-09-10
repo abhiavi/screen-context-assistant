@@ -128,6 +128,19 @@ must edit `sensitive_tracks` in that file yourself** before trusting it with
 high-risk tracks; plan §5's guarantee that sensitive tracks never leave the
 machine only holds for tracks you've actually flagged.
 
+**Per-app exclusion**: `excluded_apps` in `capture.json` — a match against
+`kdotool getwindowclassname` skips the screenshot entirely for that app
+(never taken, not just never sent). Defaults to KeePassXC/Bitwarden/
+1Password/KWallet as illustrative examples; add your own (banking, private
+chat apps, etc.) freely.
+
+**Pause/incognito**: `bash scripts/toggle_capture_pause.sh` flips a flag
+file the capture agent checks before every poll. Bind it to a KDE global
+shortcut: *System Settings → Shortcuts → Custom Shortcuts → new → Global
+Shortcut → Command/URL*, point it at the script's full path. The avatar
+shows a small red pause badge next to the character whenever paused (both
+collapsed and expanded) — pausing is never silent.
+
 ### Avatar UI (mini only)
 
 ```bash
