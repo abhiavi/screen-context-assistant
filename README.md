@@ -104,6 +104,18 @@ repo root — neither script adds the repo root to `sys.path` itself):
   depend on this cron job, so recall never has a multi-minute blind spot for
   whatever's happened since the last run. Logs: `data/segment_sessions.log`.
 
+**Calibrated proactive recall** (upgrade-roadmap "Next" phase, 2026-09-10):
+found live that systemd-logind's `IdleHint` can flap true/false rapidly
+enough to fire the avatar's proactive "welcome back" recall repeatedly (6
+times in 68 seconds, observed 2026-09-10) — not root-caused (OS/session-
+manager behavior, not app logic), so `app/avatar/main.py` now enforces a
+`proactive_recall_cooldown_seconds` (default 600) between proactive
+recalls regardless of how many idle→active transitions fire. The decision
+logic lives in `app/avatar/proactivity.py` — deliberately zero
+PySide6/dbus imports, so it's unit-testable from aws-01's plain venv even
+though `app.avatar.main` itself can only ever be imported on mini. First
+avatar-app code this project has real test coverage for.
+
 **RAG evaluation harness** (upgrade-roadmap "Now" item 6, 2026-09-10):
 `scripts/run_ragas_eval.py` runs the gold-set questions in
 `app/eval/gold_set.json` through the live `/query` endpoint and scores each
