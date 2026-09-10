@@ -31,16 +31,18 @@ DEFAULT_CONFIG = {
     "idle_poll_seconds": 5,
     "idle_threshold_seconds": 300,
     "vault_write_interval_seconds": 900,
-    "screen_poll_seconds": 4,
     "avatar_id": "haru",
-    # Off by default: auto-following the active window's monitor on every
-    # switch made it hard to operate around other apps (Operator feedback,
-    # 2026-09-10) - it was relocating mid-workflow, not just on return from
-    # idle. Set true to bring back continuous following.
-    "follow_active_screen": False,
+    # On by default, but only checked at idle-return, not on a continuous
+    # timer. The original version polled every 4s and relocated on every
+    # active-window change, which meant jumping onto whatever monitor the
+    # Operator had just switched to mid-work - the actual complaint
+    # (2026-09-10) wasn't "following" itself, which was liked, just that
+    # cadence. Tying it to idle-return keeps it meeting you where you sat
+    # back down without ever moving while you're actively working.
+    "follow_active_screen": True,
     # Optional one-time placement instead: index into Qt.application.screens
-    # (0-based) to pin the avatar to a specific monitor at startup. Leave
-    # null to just use whatever the compositor picks by default.
+    # (0-based) to pin the avatar to a specific monitor and disable
+    # following entirely. Leave null to use follow_active_screen above.
     "preferred_screen_index": None,
 }
 
@@ -156,15 +158,12 @@ class Backend(QObject):
         self._vault_timer.start()
 
         self._last_screen_index: int | None = None
-        if config.get("follow_active_screen", False):
-            self._screen_timer = QTimer(self)
-            self._screen_timer.setInterval(int(config.get("screen_poll_seconds", 4) * 1000))
-            self._screen_timer.timeout.connect(self._check_active_screen)
-            self._screen_timer.start()
-            self._check_active_screen()  # place it correctly on first launch too
-        elif config.get("preferred_screen_index") is not None:
-            # One-time placement, not continuous polling - pin and leave it alone.
+        if config.get("preferred_screen_index") is not None:
+            # Explicit pin takes priority - one-time placement, not
+            # continuous, and never overridden by idle-return follow below.
             QTimer.singleShot(300, lambda: self.activeScreenChanged.emit(config["preferred_screen_index"]))
+        elif config.get("follow_active_screen", True):
+            self._check_active_screen()  # place it correctly on first launch too
 
     def _check_active_screen(self) -> None:
         index = _active_window_screen_index()
@@ -175,6 +174,15 @@ class Backend(QObject):
     def _check_idle_return(self) -> None:
         if self._idle.just_returned():
             self.requestRecall("", proactive=True)
+            # Relocate to wherever the Operator actually is *only* at this
+            # natural "just sat back down" moment - not on a continuous
+            # timer. The earlier always-on 4s poll was relocating mid-work
+            # every time the active window's monitor changed, which is
+            # exactly the "gets in the way of other apps" complaint. Tying
+            # it to idle-return keeps the liked behavior (it meets you where
+            # you are) without ever moving while you're actively working.
+            if self.config.get("preferred_screen_index") is None and self.config.get("follow_active_screen", True):
+                self._check_active_screen()
 
     @Slot(str)
     def requestRecall(self, track_id: str = "", proactive: bool = False, for_vault: bool = False) -> None:

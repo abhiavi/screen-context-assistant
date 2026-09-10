@@ -159,14 +159,18 @@ they're not consistent between models), and it shows up in the middle-click
 cycle automatically — no code changes needed.
 
 **Which monitor it appears on**: `follow_active_screen` in `avatar.json` is
-**off by default** — it existed briefly to follow your active window across
-monitors, but that meant it was relocating itself mid-workflow every time
-you switched screens, which got in the way of whatever else was on that
-monitor (Operator feedback, 2026-09-10). Left off, it just stays wherever
-the compositor places it. To pin it to a specific monitor once (not
-continuously), set `preferred_screen_index` to a 0-based index instead — it
-places itself there at startup and doesn't move again on its own. Only
-right-click (corner-cycling within the current monitor) repositions it now.
+on by default, but — after two rounds of feedback — checked **only when you
+return from being idle**, not on a continuous timer. The first version
+polled every 4s and relocated on every active-window change, which meant
+jumping onto whatever monitor you'd just switched to mid-work and getting
+in the way of other apps there; that was the actual problem, not the
+following itself. Tying it to idle-return keeps it meeting you where you
+sat back down, without ever moving while you're actively working elsewhere
+(it also won't relocate mid-session across three monitors without an idle
+gap somewhere — ask if you want a slower background poll added on top of
+this for that case). To pin it to one specific monitor and disable
+following entirely, set `preferred_screen_index` to a 0-based index
+instead. Right-click still cycles corners within the current monitor.
 
 **Scroll wheel** over the character browses conversation history (past
 recalls/answers, newest first, lazily fetched from `GET /history` on the
