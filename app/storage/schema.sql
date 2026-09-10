@@ -26,6 +26,28 @@ CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions (started_at);
 -- re-clustering an overlapping trailing window on every run.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_track_started ON sessions (track_id, started_at);
 
+-- Thematic project groupings across sessions (upgrade roadmap "Next":
+-- HDBSCAN semantic clustering). A session is still one contiguous block of
+-- time (see `sessions` above); a cluster groups multiple sessions - even
+-- ones separated by hours or days, interleaved with unrelated work - that
+-- are actually the same underlying project, by embedding similarity rather
+-- than time adjacency. scripts/cluster_sessions.py populates this.
+CREATE TABLE IF NOT EXISTS activity_clusters (
+    id              BIGSERIAL PRIMARY KEY,
+    track_id        TEXT NOT NULL REFERENCES tracks(track_id),
+    label           TEXT NOT NULL,          -- short LLM-synthesized name, e.g. "sse-search deployment work"
+    summary         TEXT,                   -- longer LLM-synthesized description
+    session_count   INTEGER NOT NULL DEFAULT 0,
+    first_seen      TIMESTAMPTZ NOT NULL,
+    last_seen       TIMESTAMPTZ NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_clusters_track ON activity_clusters (track_id);
+
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cluster_id BIGINT REFERENCES activity_clusters(id);
+CREATE INDEX IF NOT EXISTS idx_sessions_cluster ON sessions (cluster_id);
+
 CREATE TABLE IF NOT EXISTS app_switch_events (
     id              BIGSERIAL PRIMARY KEY,
     session_id      BIGINT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

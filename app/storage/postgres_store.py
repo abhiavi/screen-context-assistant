@@ -94,6 +94,97 @@ def upsert_session(
         return cur.fetchone()[0]
 
 
+def sessions_since(cutoff: datetime, track_id: str | None = None):
+    """Sessions to feed into scripts/cluster_sessions.py's HDBSCAN pass.
+    Returns dicts including the current cluster_id (if any), so the caller
+    can detect when a new clustering run wants to re-home a session that
+    was already assigned to a different cluster."""
+    with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if track_id:
+            cur.execute(
+                "SELECT * FROM sessions WHERE track_id = %s AND started_at >= %s ORDER BY started_at",
+                (track_id, cutoff),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM sessions WHERE started_at >= %s ORDER BY started_at",
+                (cutoff,),
+            )
+        return cur.fetchall()
+
+
+def upsert_cluster(
+    *, track_id: str, label: str, summary: str | None,
+    first_seen: datetime, last_seen: datetime, session_ids: list[int],
+) -> int:
+    """Creates or updates an activity_cluster and re-homes the given
+    sessions onto it. HDBSCAN's own cluster numbering isn't stable across
+    reruns (a fresh fit can renumber everything), so stability instead
+    comes from the sessions themselves: if any session in this new cluster
+    already belongs to an existing cluster row, that row is reused and
+    updated rather than creating a duplicate - only sessions with no prior
+    cluster (or agreeing with the majority) start a genuinely new row."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT cluster_id, count(*) AS n FROM sessions WHERE id = ANY(%s) AND cluster_id IS NOT NULL "
+            "GROUP BY cluster_id ORDER BY n DESC LIMIT 1",
+            (session_ids,),
+        )
+        existing = cur.fetchone()
+
+        if existing:
+            cluster_id = existing[0]
+            cur.execute(
+                """
+                UPDATE activity_clusters
+                SET label = %s, summary = %s,
+                    first_seen = LEAST(first_seen, %s), last_seen = GREATEST(last_seen, %s),
+                    session_count = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (label, summary, first_seen, last_seen, len(session_ids), cluster_id),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO activity_clusters (track_id, label, summary, first_seen, last_seen, session_count)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+                """,
+                (track_id, label, summary, first_seen, last_seen, len(session_ids)),
+            )
+            cluster_id = cur.fetchone()[0]
+
+        cur.execute("UPDATE sessions SET cluster_id = %s WHERE id = ANY(%s)", (cluster_id, session_ids))
+        return cluster_id
+
+
+def latest_cluster_for_track(track_id: str):
+    """Most recent activity_cluster with a session in this track, if any -
+    used by /recall to mention "this connects to your ongoing work on X"
+    without needing to match the exact live Qdrant-derived session (still
+    on its own 15min cron via segment_sessions.py) to a specific Postgres
+    session row, which would be racy right after a fresh recall."""
+    with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM activity_clusters WHERE track_id = %s ORDER BY last_seen DESC LIMIT 1",
+            (track_id,),
+        )
+        return cur.fetchone()
+
+
+def cluster_for_session(session_id: int):
+    with connect() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT c.* FROM activity_clusters c
+            JOIN sessions s ON s.cluster_id = c.id
+            WHERE s.id = %s
+            """,
+            (session_id,),
+        )
+        return cur.fetchone()
+
+
 def log_app_switch(session_id: int, app_name: str, window_title_redacted: str, occurred_at: datetime) -> None:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

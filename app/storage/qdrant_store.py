@@ -145,6 +145,42 @@ def points_since(cutoff_timestamp: int, client: QdrantClient | None = None):
     return sorted(all_points, key=lambda p: p.payload.get("timestamp", 0))
 
 
+def vectors_in_range(
+    track_id: str,
+    start_timestamp: int,
+    end_timestamp: int,
+    client: QdrantClient | None = None,
+) -> list[list[float]]:
+    """Embedding vectors (no payload needed) for one track in one time
+    range, inclusive. Used by scripts/cluster_sessions.py to compute a
+    session's representative embedding (mean-pooled) for HDBSCAN - unlike
+    every other Qdrant read in this app, this one actually needs the raw
+    vectors, not just payload."""
+    client = client or get_client()
+    query_filter = qm.Filter(
+        must=[
+            qm.FieldCondition(key="track_id", match=qm.MatchValue(value=track_id)),
+            qm.FieldCondition(key="timestamp", range=qm.Range(gte=start_timestamp, lte=end_timestamp)),
+        ]
+    )
+    vectors = []
+    offset = None
+    while True:
+        points, next_offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=query_filter,
+            limit=500,
+            offset=offset,
+            with_payload=False,
+            with_vectors=True,
+        )
+        vectors.extend(p.vector for p in points)
+        if next_offset is None:
+            break
+        offset = next_offset
+    return vectors
+
+
 def purge_older_than(days: int, client: QdrantClient | None = None) -> None:
     """Retention enforcement (plan §4.3): frame-level vectors ~30 days."""
     client = client or get_client()

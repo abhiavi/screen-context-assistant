@@ -35,6 +35,8 @@ class RecallResponse(BaseModel):
     ended_at: datetime | None
     summary: str
     frame_count: int
+    project_label: str | None = None
+    project_summary: str | None = None
 
 
 class ConversationEntry(BaseModel):
@@ -103,13 +105,29 @@ def recall(track_id: str | None = None) -> RecallResponse:
     ocr_snippets = [p.payload.get("ocr_text", "") for p in reversed(session_points) if p.payload.get("ocr_text")]
     joined = "\n---\n".join(ocr_snippets)[:4000]
 
+    # Thematic project context (upgrade roadmap, HDBSCAN clustering,
+    # scripts/cluster_sessions.py) - a recurring project spanning multiple
+    # sessions, possibly with gaps of hours or days, not just this one
+    # contiguous block of activity. Only mention it if it actually recurs
+    # (session_count > 1) - a cluster of one session is just this session.
+    cluster = postgres_store.latest_cluster_for_track(resolved_track_id) if resolved_track_id else None
+    project_context = ""
+    if cluster and cluster["session_count"] > 1:
+        project_context = (
+            f"\n\nThis also connects to a recurring project you've worked on across "
+            f"{cluster['session_count']} separate sessions: \"{cluster['label']}\" - "
+            f"{cluster['summary'] or ''} Weave a brief mention of that broader "
+            "project into your answer if it's genuinely relevant to the next step."
+        )
+
     prompt = (
         "The user stepped away and just came back. In 2-4 short, friendly "
         "sentences, remind them what they were doing and, as a domain "
         f"expert would, suggest the concrete next step. {EXPERT_PERSONA_INSTRUCTION}"
         "Base this only on the already-redacted on-screen text below, captured "
         f"from their own screen (track: {resolved_track_id}, apps: "
-        f"{', '.join(app_names) or 'unknown'}). {MARKDOWN_INSTRUCTION}\n\n{joined}"
+        f"{', '.join(app_names) or 'unknown'}). {MARKDOWN_INSTRUCTION}"
+        f"{project_context}\n\n{joined}"
     )
     summary = gateway.synthesize(prompt, max_tokens=220)
     postgres_store.save_conversation(resolved_track_id, "recall", None, summary)
@@ -121,6 +139,8 @@ def recall(track_id: str | None = None) -> RecallResponse:
         ended_at=ended_at,
         summary=summary,
         frame_count=len(session_points),
+        project_label=cluster["label"] if cluster and cluster["session_count"] > 1 else None,
+        project_summary=cluster["summary"] if cluster and cluster["session_count"] > 1 else None,
     )
 
 
