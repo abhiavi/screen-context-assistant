@@ -26,6 +26,10 @@ Window {
     readonly property int collapsedCharSize: 72
     property bool hasSomethingToShow: false
     property bool capturePaused: false
+    property bool recording: false
+    property bool answerIsFromVoice: false  // set true only by the mic path, so TTS
+                                             // only speaks answers to voice-asked
+                                             // questions, never typed ones
 
     // Starts small and out of the way ("should not come in maximum size
     // upfront") - a click expands it; it quietly re-collapses after a
@@ -165,7 +169,14 @@ Window {
         target: backend
         function onRecallReady(summary, trackId, appName) { panel.leaveHistoryMode(); panel.show(summary) }
         function onRecallFailed(error) { panel.leaveHistoryMode(); panel.show("Couldn't reach the backend: " + error) }
-        function onAnswerReady(answer) { panel.leaveHistoryMode(); panel.show(answer) }
+        function onAnswerReady(answer) {
+            panel.leaveHistoryMode()
+            panel.show(answer)
+            if (root.answerIsFromVoice) {
+                voice.speak(answer)
+                root.answerIsFromVoice = false
+            }
+        }
         function onAnswerFailed(error) { panel.leaveHistoryMode(); panel.show("Couldn't reach the backend: " + error) }
         function onHistoryReady(jsonText) {
             panel.historyEntries = JSON.parse(jsonText)
@@ -199,6 +210,21 @@ Window {
         }
     }
 
+    Connections {
+        target: voice
+        function onRecordingChanged(isRecording) { root.recording = isRecording }
+        function onTranscriptionReady(text) {
+            root.answerIsFromVoice = true
+            collapseTimer.restart()
+            backend.askQuestion(text)
+        }
+        function onTranscriptionFailed(error) {
+            root.answerIsFromVoice = false
+            panel.leaveHistoryMode()
+            panel.show("Voice: " + error)
+        }
+    }
+
     // --- ask bar ("a place to put the question") - only once expanded,
     // so the collapsed companion doesn't take up screen space upfront ----
     Item {
@@ -227,15 +253,57 @@ Window {
             }
         }
 
+        // Push-to-talk mic button - only shown if voice models are
+        // actually configured (voiceEnabled context property, main.py).
+        // Click to start listening, click again to stop and transcribe;
+        // not hold-to-talk, since tracking press-and-hold reliably across
+        // a MouseArea risks losing the release event (e.g. cursor drifts
+        // off the button while held) and cutting recording early.
+        Rectangle {
+            id: micButton
+            visible: typeof voiceEnabled !== "undefined" && voiceEnabled
+            anchors.left: parent.left
+            anchors.leftMargin: 5
+            anchors.verticalCenter: parent.verticalCenter
+            width: 30
+            height: 30
+            radius: 15
+            color: root.recording ? "#e0433b" : Qt.rgba(1, 1, 1, 0.12)
+            Behavior on color { ColorAnimation { duration: 150 } }
+            SequentialAnimation on opacity {
+                running: root.recording
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.5; duration: 500 }
+                NumberAnimation { to: 1.0; duration: 500 }
+            }
+            Text {
+                anchors.centerIn: parent
+                text: "●"  // solid dot standing in for a mic icon - no icon font available here
+                color: "white"
+                font.pixelSize: 13
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    if (root.recording) {
+                        voice.stopRecording()
+                    } else {
+                        root.answerIsFromVoice = false  // reset from any previous failed attempt
+                        voice.startRecording()
+                    }
+                }
+            }
+        }
+
         TextField {
             id: askInput
-            anchors.left: parent.left
+            anchors.left: (typeof voiceEnabled !== "undefined" && voiceEnabled) ? micButton.right : parent.left
             anchors.right: sendButton.left
             anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 16
+            anchors.leftMargin: 8
             anchors.rightMargin: 6
             height: 34
-            placeholderText: "Ask me anything about your recent activity..."
+            placeholderText: root.recording ? "Listening..." : "Ask me anything about your recent activity..."
             placeholderTextColor: Qt.rgba(1, 1, 1, 0.4)
             color: "#f5f3fa"
             font.pixelSize: 13
@@ -269,6 +337,7 @@ Window {
         function submit() {
             if (askInput.text.trim().length === 0) return
             collapseTimer.restart()
+            root.answerIsFromVoice = false
             backend.askQuestion(askInput.text)
             askInput.text = ""
         }

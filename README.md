@@ -104,6 +104,47 @@ repo root — neither script adds the repo root to `sys.path` itself):
   depend on this cron job, so recall never has a multi-minute blind spot for
   whatever's happened since the last run. Logs: `data/segment_sessions.log`.
 
+**Push-to-talk voice loop** (upgrade-roadmap "Next" phase, 2026-09-10):
+`app/avatar/voice.py` — fully local STT (`faster-whisper`, `base.en`,
+int8 CPU) and TTS (`Piper`, `en_US-lessac-medium`), both on mini, no audio
+ever leaves the machine (only the already-transcribed text does, through
+the same `/query` path and `assert_clean()` redaction gate as typed
+questions). Click the new mic button in the ask bar to start listening,
+click again to stop and transcribe — deliberately push-to-talk, not
+always-listening/wake-word, consistent with this app's explicit-capture
+privacy model. Voice-in implies voice-out: an answer to a voice-asked
+question is spoken aloud (markdown stripped first so TTS doesn't read
+`**` literally); a typed question's answer is not.
+
+**Two real hardware findings, both from testing live inside the actual
+`systemd --user` service context** (not just an SSH shell — confirmed
+these differ: `pactl`/`sounddevice` need `XDG_RUNTIME_DIR` that a bare SSH
+session doesn't set, while `systemd-run --user` inherits the real session
+environment the same way the avatar service does):
+- The mic's ALSA hardware path rejects 16kHz outright
+  (`PaErrorCode -9997 Invalid sample rate`) — PipeWire's usual resampling
+  isn't in this path via PortAudio's ALSA hostapi. Records at the
+  device's native 44100Hz instead and resamples to 16kHz (what whisper
+  expects) with plain numpy linear interpolation — no scipy dependency
+  for one downsample. Same issue on playback (Piper outputs 22050Hz);
+  resampled to 48000Hz, confirmed accepted on this hardware for both
+  directions.
+- Verified with a genuine closed-loop test, not just "doesn't crash":
+  synthesized a known phrase with Piper, resampled through the exact
+  same code paths a real mic recording would take, fed it back through
+  faster-whisper, and confirmed the transcription matched almost exactly
+  — run for real inside `systemd-run --user`, both models loading and
+  both resample paths exercised.
+
+Installed by `scripts/install_avatar.sh` (`portaudio` via pacman,
+`faster-whisper`/`sounddevice`/`piper-tts` via pip, Piper voice model
+downloaded to `~/.local/share/screen-context-assistant/voice_models/`) —
+**that script had a real bug found while adding this**: its `pip install`
+line was inside the `if [ ! -d .venv ]` guard, so re-running it on an
+already-existing venv (like mini's) silently never installed anything new.
+Moved outside the guard; `pip install` is idempotent so this is safe to
+run repeatedly.
+
 **Calibrated proactive recall** (upgrade-roadmap "Next" phase, 2026-09-10):
 found live that systemd-logind's `IdleHint` can flap true/false rapidly
 enough to fire the avatar's proactive "welcome back" recall repeatedly (6

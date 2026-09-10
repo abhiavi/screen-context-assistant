@@ -9,15 +9,30 @@ cd "$(dirname "$0")/.."
 echo "== system deps (pacman) =="
 # pyside6 + layer-shell-qt were already present on mini when this was built
 # (2026-09-09) - included here for reproducibility on a fresh machine. cmake
-# is for the real-blur QML plugin build below (wayland_blur/).
-sudo pacman -S --needed --noconfirm python-pyside6 layer-shell-qt cmake
+# is for the real-blur QML plugin build below (wayland_blur/). portaudio is
+# for the voice loop's sounddevice (app/avatar/voice.py).
+sudo pacman -S --needed --noconfirm python-pyside6 layer-shell-qt cmake portaudio
 
 if [ ! -d .venv ]; then
   echo "== python venv (--system-site-packages so pacman's pyside6/dbus are visible) =="
   python3 -m venv --system-site-packages .venv
-  source .venv/bin/activate
-  pip install -q httpx imagehash pillow python-dotenv
 fi
+# Outside the [ ! -d .venv ] guard above on purpose - pip install is
+# idempotent, and this needs to actually run on every invocation so a
+# re-run of this script (not just a from-scratch install) picks up
+# newly-added dependencies. It didn't, before 2026-09-10 - a real bug,
+# found while adding the voice deps below and realizing they'd never
+# install on mini's already-existing venv.
+source .venv/bin/activate
+pip install -q httpx imagehash pillow python-dotenv faster-whisper sounddevice piper-tts
+
+echo "== downloading voice models (push-to-talk STT/TTS, app/avatar/voice.py) =="
+# faster-whisper's model downloads lazily from Hugging Face on first real
+# use (no separate step needed here) - only Piper's voice needs an
+# explicit fetch.
+mkdir -p ~/.local/share/screen-context-assistant/voice_models
+python3 -m piper.download_voices --download-dir ~/.local/share/screen-context-assistant/voice_models en_US-lessac-medium || \
+  echo "piper voice download failed - voice output will stay silent until this is retried, see README"
 
 echo "== building real-blur QML plugin (see README: Real compositor blur-behind) =="
 # Falls back to simulated glass automatically if this doesn't succeed - not

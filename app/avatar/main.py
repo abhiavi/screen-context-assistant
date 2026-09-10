@@ -26,6 +26,7 @@ from PySide6.QtWebEngineQuick import QtWebEngineQuick
 
 from app.avatar.proactivity import should_fire_proactive_recall
 from app.avatar.vault_writer import append_entry
+from app.avatar.voice import VoiceEngine
 
 CONFIG_PATH = Path.home() / ".config" / "screen-context-assistant" / "avatar.json"
 # Same path the capture agent (app/capture/agent.py) and
@@ -48,6 +49,12 @@ DEFAULT_CONFIG = {
     # not app logic) - this is the calibration that actually matters:
     # without it, idle-detection flakiness directly spams the Operator.
     "proactive_recall_cooldown_seconds": 600,
+    # Push-to-talk voice loop (local STT/TTS, see app/avatar/voice.py).
+    # Models are downloaded by scripts/install_avatar.sh; if they're
+    # missing, VoiceEngine fails soft (mic button stays but transcription
+    # errors clearly instead of hanging) rather than crashing the app.
+    "voice_enabled": True,
+    "whisper_model_size": "base.en",
     "vault_write_interval_seconds": 900,
     # Local hour (0-23) to write the once-daily end-of-day digest (GET
     # /digest, broader-scope than the periodic vault writer above - covers
@@ -365,12 +372,16 @@ def main() -> None:
     app = QGuiApplication(sys.argv)
     backend = Backend(config)
 
+    voice = VoiceEngine(whisper_model_size=config["whisper_model_size"])
+
     engine = QQmlApplicationEngine()
     wayland_blur_import = Path(__file__).parent / "wayland_blur" / "build"
     has_wayland_blur = (wayland_blur_import / "WaylandBlur" / "qmldir").exists()
     if has_wayland_blur:
         engine.addImportPath(str(wayland_blur_import))
     engine.rootContext().setContextProperty("backend", backend)
+    engine.rootContext().setContextProperty("voice", voice)
+    engine.rootContext().setContextProperty("voiceEnabled", bool(config.get("voice_enabled", True)))
     engine.rootContext().setContextProperty("hasWaylandBlur", has_wayland_blur)
     engine.rootContext().setContextProperty("initialAvatarId", config["avatar_id"])
     engine.rootContext().setContextProperty("availableAvatarIds", load_avatar_ids())
