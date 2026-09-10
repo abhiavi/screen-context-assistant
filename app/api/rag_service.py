@@ -3,15 +3,22 @@ top-k from Qdrant + Postgres rows -> synthesis via SYNTHESIS_MODEL. Bound to
 the Tailscale IP only."""
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from app.graph import client as graph_client
 from app.ingest import gateway
 from app.storage import postgres_store, qdrant_store
 
 app = FastAPI(title="screen-context-assistant RAG")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    await graph_client.ensure_indices()
 
 SESSION_GAP_SECONDS = 5 * 60  # a gap this long between frames = session boundary
 SESSION_MAX_POINTS = 40  # cap how much context/tokens one recall pulls in
@@ -45,6 +52,12 @@ class DigestEntry(BaseModel):
     session_count: int
     total_seconds: int
     summary: str
+
+
+class GraphFact(BaseModel):
+    fact: str
+    valid_at: str | None
+    invalid_at: str | None
 
 
 class SessionEntry(BaseModel):
@@ -193,7 +206,7 @@ def recall(track_id: str | None = None) -> RecallResponse:
 
 
 @app.get("/digest", response_model=list[DigestEntry])
-def digest(hours: int = 24) -> list[DigestEntry]:
+async def digest(hours: int = 24) -> list[DigestEntry]:
     """Broader-scope "here's your day" recap across every session in the
     trailing window, for every track that had any - unlike /recall (which
     only ever reconstructs the single most recent contiguous session),
@@ -202,7 +215,13 @@ def digest(hours: int = 24) -> list[DigestEntry]:
     (existed in schema.sql since the v3 build, never written to before
     this) as a side effect; the caller (main.py on mini, which has vault
     filesystem access this backend doesn't) is responsible for writing the
-    returned summaries into the Obsidian vault."""
+    returned summaries into the Obsidian vault. Also feeds the day's
+    summary into the Graphiti temporal knowledge graph (app/graph/client.py,
+    upgrade roadmap "Next" phase) - one episode per track per day, not per
+    session or per frame, to keep Graphiti's own LLM extraction cost
+    bounded. `async def` specifically for this - everything else in this
+    endpoint is still sync httpx (gateway.py), which is fine to block
+    inside an async def for a job that only runs once a day."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     track_ids = postgres_store.known_tracks_with_recent_sessions(cutoff)
 
@@ -242,14 +261,24 @@ def digest(hours: int = 24) -> list[DigestEntry]:
             f"{cluster_context} {MARKDOWN_INSTRUCTION}\n\n" + "\n".join(lines)
         )
         summary = gateway.synthesize(prompt, max_tokens=280)
+        today = date.today()
 
         postgres_store.upsert_daily_rollup(
             track_id=track_id,
-            day=date.today(),
+            day=today,
             total_seconds=total_seconds,
             session_count=len(sessions),
             summary=summary,
         )
+
+        try:
+            await graph_client.add_daily_episode(track_id, today.isoformat(), summary)
+        except Exception:  # noqa: BLE001
+            # Graph memory is a supplement, not load-bearing - a failure
+            # here (Neo4j down, extraction error) shouldn't break the
+            # digest itself, which the vault write depends on. Still
+            # logged (not silently swallowed) so a real problem is visible.
+            logging.exception("graph_client.add_daily_episode failed for track %s", track_id)
 
         entries.append(DigestEntry(
             track_id=track_id,
@@ -260,6 +289,18 @@ def digest(hours: int = 24) -> list[DigestEntry]:
         ))
 
     return entries
+
+
+@app.get("/graph_search", response_model=list[GraphFact])
+async def graph_search(query: str, track_id: str | None = None, num_results: int = 10) -> list[GraphFact]:
+    """Temporal knowledge-graph search (app/graph/client.py, Graphiti +
+    Neo4j) - facts and relationships extracted from daily digests, with
+    validity windows (valid_at/invalid_at) when something changed over
+    time. Complements /query (Qdrant semantic search over raw frames): use
+    this for "what changed" or "what's the relationship between X and Y"
+    questions, /query for "what was on screen about X"."""
+    facts = await graph_client.search_graph(query, track_id=track_id, num_results=num_results)
+    return [GraphFact(**f) for f in facts]
 
 
 @app.post("/query", response_model=QueryResponse)

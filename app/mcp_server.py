@@ -107,6 +107,21 @@ def list_clusters(track_id: str | None = None, limit: int = 20) -> list[dict]:
 
 
 @server.tool()
+def graph_search(query: str, track_id: str | None = None, num_results: int = 10) -> list[dict]:
+    """Temporal knowledge-graph search (Graphiti + Neo4j) - facts and
+    relationships extracted from daily digests, each with a validity
+    window (when something changed, not just what's true now). Use this
+    for "what changed" or "how does X relate to Y" questions; use `query`
+    instead for "what was on screen about X"."""
+    params = {"query": query, "num_results": num_results}
+    if track_id:
+        params["track_id"] = track_id
+    resp = _client.get("/graph_search", params=params)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@server.tool()
 def conversation_history(track_id: str | None = None, limit: int = 50) -> list[dict]:
     """Past recall/query exchanges already shown to the Operator in the
     avatar's own panel, newest first - what they've already been told,

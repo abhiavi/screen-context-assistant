@@ -9,5 +9,6 @@ data/
 .DS_Store
 qdrant_storage/
 pgdata/
+neo4j_data/
 *.log
 app/avatar/wayland_blur/build/

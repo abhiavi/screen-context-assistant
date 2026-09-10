@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     postgres_user: str = "screen_context"
     postgres_password: str = ""
 
+    # Temporal knowledge-graph memory (upgrade roadmap "Next" phase,
+    # Graphiti). Bolt protocol, not the 7474 browser UI port.
+    neo4j_host: str = "100.96.7.56"
+    neo4j_bolt_port: int = 7687
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+
     bind_host: str = "100.96.7.56"
     ingest_port: int = 8088
     rag_port: int = 8089
@@ -31,6 +38,10 @@ class Settings(BaseSettings):
     retain_raw_frames: bool = False
     raw_frame_retention_seconds: int = 300
     frame_vector_retention_days: int = 30
+
+    @property
+    def neo4j_bolt_uri(self) -> str:
+        return f"bolt://{self.neo4j_host}:{self.neo4j_bolt_port}"
 
     @property
     def postgres_dsn(self) -> str:

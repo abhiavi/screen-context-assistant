@@ -28,3 +28,20 @@ services:
       - "${BIND_HOST}:6334:6334"
     volumes:
       - ./qdrant_storage:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: sca-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      # Off by default otherwise ("Anonymous Usage Data is being sent to
+      # Neo4j") - inconsistent with this app's privacy stance to leave on.
+      NEO4J_dbms_usage__report_enabled: "false"
+    ports:
+      # Tailscale IP only - never 0.0.0.0 (plan §7). 7474 = browser UI
+      # (debugging convenience), 7687 = Bolt (what the driver actually uses).
+      - "${BIND_HOST}:7474:7474"
+      - "${BIND_HOST}:${NEO4J_BOLT_PORT}:7687"
+    volumes:
+      - ./neo4j_data:/data
