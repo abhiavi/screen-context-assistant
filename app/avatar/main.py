@@ -33,6 +33,15 @@ DEFAULT_CONFIG = {
     "vault_write_interval_seconds": 900,
     "screen_poll_seconds": 4,
     "avatar_id": "haru",
+    # Off by default: auto-following the active window's monitor on every
+    # switch made it hard to operate around other apps (Operator feedback,
+    # 2026-09-10) - it was relocating mid-workflow, not just on return from
+    # idle. Set true to bring back continuous following.
+    "follow_active_screen": False,
+    # Optional one-time placement instead: index into Qt.application.screens
+    # (0-based) to pin the avatar to a specific monitor at startup. Leave
+    # null to just use whatever the compositor picks by default.
+    "preferred_screen_index": None,
 }
 
 AVATARS_PATH = Path(__file__).parent / "live2d_assets" / "avatars.json"
@@ -147,11 +156,15 @@ class Backend(QObject):
         self._vault_timer.start()
 
         self._last_screen_index: int | None = None
-        self._screen_timer = QTimer(self)
-        self._screen_timer.setInterval(int(config.get("screen_poll_seconds", 4) * 1000))
-        self._screen_timer.timeout.connect(self._check_active_screen)
-        self._screen_timer.start()
-        self._check_active_screen()  # place it correctly on first launch too
+        if config.get("follow_active_screen", False):
+            self._screen_timer = QTimer(self)
+            self._screen_timer.setInterval(int(config.get("screen_poll_seconds", 4) * 1000))
+            self._screen_timer.timeout.connect(self._check_active_screen)
+            self._screen_timer.start()
+            self._check_active_screen()  # place it correctly on first launch too
+        elif config.get("preferred_screen_index") is not None:
+            # One-time placement, not continuous polling - pin and leave it alone.
+            QTimer.singleShot(300, lambda: self.activeScreenChanged.emit(config["preferred_screen_index"]))
 
     def _check_active_screen(self) -> None:
         index = _active_window_screen_index()

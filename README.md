@@ -158,6 +158,16 @@ states — inspect the model's own `.model3.json` for what it actually has,
 they're not consistent between models), and it shows up in the middle-click
 cycle automatically — no code changes needed.
 
+**Which monitor it appears on**: `follow_active_screen` in `avatar.json` is
+**off by default** — it existed briefly to follow your active window across
+monitors, but that meant it was relocating itself mid-workflow every time
+you switched screens, which got in the way of whatever else was on that
+monitor (Operator feedback, 2026-09-10). Left off, it just stays wherever
+the compositor places it. To pin it to a specific monitor once (not
+continuously), set `preferred_screen_index` to a 0-based index instead — it
+places itself there at startup and doesn't move again on its own. Only
+right-click (corner-cycling within the current monitor) repositions it now.
+
 **Scroll wheel** over the character browses conversation history (past
 recalls/answers, newest first, lazily fetched from `GET /history` on the
 RAG service on first scroll) — useful since you may have different
