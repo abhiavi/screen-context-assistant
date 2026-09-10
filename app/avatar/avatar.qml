@@ -301,19 +301,26 @@ Window {
             id: glass
             anchors.fill: parent
             radius: 20
-            color: Qt.rgba(0.08, 0.07, 0.12, 0.92)
+            color: Qt.rgba(0.08, 0.07, 0.12, blurActive ? 0.6 : 0.92)
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, 0.18)
 
-            // Real desktop content (terminal text, etc.) behind the panel was
-            // bleeding through and visually merging with our own text at the
-            // old alpha (~0.55) - confirmed live via screenshot, not just a
-            // hunch. No true blur-behind is available here (see README), so
-            // legibility wins over "true glass": pushed near-opaque.
+            // Desktop content behind the panel used to bleed through and
+            // merge with our own text at ~0.55 alpha with only a simulated
+            // tint (no real blurring of what's behind) - confirmed live via
+            // screenshot. blurActive tracks whether RealBlur.qml (real
+            // compositor blur-behind, see wayland_blur/) actually attached
+            // at runtime: when it has, the content behind is genuinely
+            // softened so a lower, glassier alpha stays legible; when it
+            // hasn't (older KWin, blur effect disabled, non-KWin
+            // compositor), we fall back to the old near-opaque tint so
+            // legibility never regresses.
+            readonly property bool blurActive: waylandBlurLoader.item ? waylandBlurLoader.item.supported : false
+
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.08) }
-                GradientStop { position: 0.35; color: Qt.rgba(0.08, 0.07, 0.12, 0.92) }
-                GradientStop { position: 1.0; color: Qt.rgba(0.04, 0.03, 0.07, 0.95) }
+                GradientStop { position: 0.35; color: Qt.rgba(0.08, 0.07, 0.12, glass.blurActive ? 0.6 : 0.92) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.04, 0.03, 0.07, glass.blurActive ? 0.65 : 0.95) }
             }
 
             layer.enabled: true
@@ -322,6 +329,19 @@ Window {
                 shadowColor: Qt.rgba(0.49, 0.23, 0.93, 0.35)
                 shadowBlur: 0.8
                 shadowVerticalOffset: 6
+            }
+
+            // Real compositor-side blur-behind (ext_background_effect_v1),
+            // in its own file so a missing/unbuilt plugin only fails this
+            // Loader, never the whole app. Paints nothing itself - it just
+            // tells KWin which region of the window to blur underneath.
+            Loader {
+                id: waylandBlurLoader
+                anchors.fill: parent
+                active: typeof hasWaylandBlur !== "undefined" && hasWaylandBlur
+                source: active ? Qt.resolvedUrl("RealBlur.qml") : ""
+                onStatusChanged: if (status === Loader.Error)
+                    console.log("real blur unavailable, using simulated glass")
             }
         }
 

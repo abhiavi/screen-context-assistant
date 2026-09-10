@@ -290,7 +290,12 @@ def main() -> None:
     backend = Backend(config)
 
     engine = QQmlApplicationEngine()
+    wayland_blur_import = Path(__file__).parent / "wayland_blur" / "build"
+    has_wayland_blur = (wayland_blur_import / "WaylandBlur" / "qmldir").exists()
+    if has_wayland_blur:
+        engine.addImportPath(str(wayland_blur_import))
     engine.rootContext().setContextProperty("backend", backend)
+    engine.rootContext().setContextProperty("hasWaylandBlur", has_wayland_blur)
     engine.rootContext().setContextProperty("initialAvatarId", config["avatar_id"])
     engine.rootContext().setContextProperty("availableAvatarIds", load_avatar_ids())
     qml_path = Path(__file__).parent / "avatar.qml"

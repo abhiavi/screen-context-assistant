@@ -10,3 +10,4 @@ data/
 qdrant_storage/
 pgdata/
 *.log
+app/avatar/wayland_blur/build/

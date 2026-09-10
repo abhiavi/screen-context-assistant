@@ -209,6 +209,39 @@ scrolls internally (capped at 420px tall) instead of clipping long expert
 answers — this was broken until 2026-09-10 (see Known limitations below on
 why the panel had to be redesigned).
 
+**Real compositor blur-behind** (2026-09-10, upgrade-roadmap "Now" item 4):
+the panel is genuinely blurred by KWin, not just tinted. `app/avatar/wayland_blur/`
+is a small hand-built Qt6 QML plugin (`BackgroundBlur`, C++, CMake) binding
+the `ext_background_effect_v1` Wayland protocol — the newer replacement for
+`org_kde_kwin_blur_manager`, which Plasma 6.7 removed outright (confirmed via
+`wayland-info`: the old global is absent, the new one is present). Qt's own
+`QWaylandClientExtensionTemplate` handles the registry bind; the wl_surface
+comes from `QPlatformNativeInterface::nativeResourceForWindow("surface", ...)`
+and the wl_compositor from the public `QNativeInterface::QWaylandApplication`
+— both public/stable Qt API, no private headers for those two; `Qt6::GuiPrivate`
+is linked only for the `qpa/qplatformnativeinterface.h` header location itself.
+Built against the system Qt6 (not a bundled wheel copy) because `pyside6` here
+is the Arch package linked against system Qt — confirmed matching versions
+(6.11.2) before relying on that. Wired into `avatar.qml` via `RealBlur.qml`
+loaded through a `Loader` (gated on a `hasWaylandBlur` context property set
+by `main.py` if `wayland_blur/build/WaylandBlur/qmldir` exists) so a
+missing/unbuilt plugin only fails that Loader, never the whole engine — falls
+back cleanly to the old near-opaque simulated-glass tint. The panel's own
+alpha is bound to `BackgroundBlur.supported` (`glass.blurActive` in
+avatar.qml): ~0.6 (glassy) when real blur actually attached at runtime, ~0.92
+(the old safe tint) if it didn't. **Requires KWin's Blur effect plugin to be
+enabled** (`kwriteconfig6 --file kwinrc --group Plugins --key blurEnabled
+true && qdbus6 org.kde.KWin /KWin reconfigure`) — the protocol can be bound
+and `set_blur_region` calls succeed with zero errors even when the effect is
+off, they just silently no-op; this cost real debugging time (found via
+`qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded blur` →
+`false`) and is exactly the kind of failure the `supported`-gated alpha
+fallback above is protecting against. Build: `cd
+app/avatar/wayland_blur && cmake -S . -B build -DCMAKE_PREFIX_PATH=/usr/lib/qt6
+&& cmake --build build`; rebuild after any Qt6 point-release bump (it links
+`Qt6::GuiPrivate`, so it's tied to that exact Qt build per Qt's own CMake
+warning).
+
 **Answers adopt an expert persona**: both `/recall` and `/query` prompts on
 the RAG service ask the model to infer the relevant domain from the
 captured context (software engineering, security research, business
