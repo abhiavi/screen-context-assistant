@@ -116,6 +116,15 @@ privacy model. Voice-in implies voice-out: an answer to a voice-asked
 question is spoken aloud (markdown stripped first so TTS doesn't read
 `**` literally); a typed question's answer is not.
 
+**Passive by default (2026-09-11)**: neither model loads until the mic
+button is clicked for the first time — measured the eager-load cost live
+(avatar cgroup peaked at ~1GB vs. ~500-700MB without voice, on a machine
+already under real memory pressure) and it wasn't worth paying on every
+startup for a feature that might go unused. First click shows an hourglass
+while both models load in the background (a few seconds), then
+auto-starts listening once ready — after that one-time cost, the mic
+button behaves normally for the rest of the session.
+
 **Two real hardware findings, both from testing live inside the actual
 `systemd --user` service context** (not just an SSH shell — confirmed
 these differ: `pactl`/`sounddevice` need `XDG_RUNTIME_DIR` that a bare SSH
