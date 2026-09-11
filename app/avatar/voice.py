@@ -159,6 +159,14 @@ class VoiceEngine(QObject):
             return
         threading.Thread(target=self._speak, args=(text,), daemon=True).start()
 
+    @Slot()
+    def stopSpeaking(self) -> None:
+        # sd.stop() is safe to call from any thread - it just signals the
+        # PortAudio stream _speak() is blocked on in sd.wait() to stop,
+        # which then returns there and runs the speakingChanged(False)
+        # cleanup in its own finally block same as a natural finish.
+        sd.stop()
+
     def _speak(self, text: str) -> None:
         if self._piper is None:
             return  # voice output is a nice-to-have, not load-bearing - stay silent rather than error

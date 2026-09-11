@@ -27,6 +27,7 @@ Window {
     property bool hasSomethingToShow: false
     property bool capturePaused: false
     property bool recording: false
+    property bool speaking: false
     property bool answerIsFromVoice: false  // set true only by the mic path, so TTS
                                              // only speaks answers to voice-asked
                                              // questions, never typed ones
@@ -165,6 +166,46 @@ Window {
         }
     }
 
+    // Window controls - only meaningful once expanded (nothing to
+    // minimize when already collapsed to the small icon). No OS-drawn
+    // title bar exists here (Qt.FramelessWindowHint, layer-shell surface),
+    // so these are hand-drawn rather than coming for free.
+    Row {
+        id: windowControls
+        visible: root.expanded
+        opacity: root.expanded ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 180 } }
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 8
+        anchors.rightMargin: 8
+        spacing: 6
+        z: 10  // above the panel/character so it's never covered
+
+        Rectangle {
+            width: 22; height: 22; radius: 11
+            color: minimizeHover.hovered ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.1)
+            Behavior on color { ColorAnimation { duration: 120 } }
+            Text { anchors.centerIn: parent; text: "–"; color: "white"; font.pixelSize: 14 }
+            HoverHandler { id: minimizeHover }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.expanded = false
+            }
+        }
+        Rectangle {
+            width: 22; height: 22; radius: 11
+            color: closeHover.hovered ? "#e0433b" : Qt.rgba(1, 1, 1, 0.1)
+            Behavior on color { ColorAnimation { duration: 120 } }
+            Text { anchors.centerIn: parent; text: "×"; color: "white"; font.pixelSize: 15 }
+            HoverHandler { id: closeHover }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: Qt.quit()
+            }
+        }
+    }
+
     Connections {
         target: backend
         function onRecallReady(summary, trackId, appName) { panel.leaveHistoryMode(); panel.show(summary) }
@@ -213,6 +254,7 @@ Window {
     Connections {
         target: voice
         function onRecordingChanged(isRecording) { root.recording = isRecording }
+        function onSpeakingChanged(isSpeaking) { root.speaking = isSpeaking }
         function onTranscriptionReady(text) {
             root.answerIsFromVoice = true
             collapseTimer.restart()
@@ -268,24 +310,31 @@ Window {
             width: 30
             height: 30
             radius: 15
-            color: root.recording ? "#e0433b" : Qt.rgba(1, 1, 1, 0.12)
+            // Same button doubles as "stop speaking" while TTS is playing -
+            // the mic obviously can't record while the avatar is talking
+            // over it anyway, so reusing the slot instead of a second
+            // button avoids a layout jump for something the same physical
+            // spot never needs simultaneously.
+            color: (root.recording || root.speaking) ? "#e0433b" : Qt.rgba(1, 1, 1, 0.12)
             Behavior on color { ColorAnimation { duration: 150 } }
             SequentialAnimation on opacity {
-                running: root.recording
+                running: root.recording || root.speaking
                 loops: Animation.Infinite
                 NumberAnimation { to: 0.5; duration: 500 }
                 NumberAnimation { to: 1.0; duration: 500 }
             }
             Text {
                 anchors.centerIn: parent
-                text: "●"  // solid dot standing in for a mic icon - no icon font available here
+                text: root.speaking ? "■" : "●"  // square = stop, dot standing in for a mic icon
                 color: "white"
                 font.pixelSize: 13
             }
             MouseArea {
                 anchors.fill: parent
                 onClicked: {
-                    if (root.recording) {
+                    if (root.speaking) {
+                        voice.stopSpeaking()
+                    } else if (root.recording) {
                         voice.stopRecording()
                     } else {
                         root.answerIsFromVoice = false  // reset from any previous failed attempt
@@ -303,7 +352,7 @@ Window {
             anchors.leftMargin: 8
             anchors.rightMargin: 6
             height: 34
-            placeholderText: root.recording ? "Listening..." : "Ask me anything about your recent activity..."
+            placeholderText: root.recording ? "Listening..." : (root.speaking ? "Speaking... (click to stop)" : "Ask me anything about your recent activity...")
             placeholderTextColor: Qt.rgba(1, 1, 1, 0.4)
             color: "#f5f3fa"
             font.pixelSize: 13
