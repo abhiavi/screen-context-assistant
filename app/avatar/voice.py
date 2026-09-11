@@ -78,20 +78,40 @@ class VoiceEngine(QObject):
     transcriptionFailed = Signal(str)
     recordingChanged = Signal(bool)
     speakingChanged = Signal(bool)
+    activatingChanged = Signal(bool)  # true while models are loading, for a UI "warming up" state
 
     def __init__(self, whisper_model_size: str = "base.en", parent=None):
         super().__init__(parent)
         self._whisper_model_size = whisper_model_size
         self._whisper: WhisperModel | None = None
-        self._piper = None  # lazy PiperVoice, loaded on the same warm-up thread
+        self._piper = None  # lazy PiperVoice, loaded on the same activation thread
         self._stream: sd.InputStream | None = None
         self._frames: list[np.ndarray] = []
         self._recording = False
-        threading.Thread(target=self._warm_up, daemon=True).start()
+        # Passive by default (2026-09-11, Operator: "keep voice-loop in
+        # passive mode unless i ask it to be activated") - loading both
+        # models at every startup was a real, measured cost (avatar cgroup
+        # peaked at 1GB vs. ~500-700MB before voice existed, with mini
+        # already under genuine memory pressure - 8.2GB of 14GB swap in
+        # use at the time). Nothing is loaded until activate() is called,
+        # which only happens from a real user action (the mic button).
+        self._activated = False
+        self._activating = False
+        self._start_recording_once_ready = False
 
-    def _warm_up(self) -> None:
-        """Load both models once at startup, off the Qt thread, so the
-        first real use isn't stuck waiting on a multi-second model load."""
+    @Slot()
+    def activate(self) -> None:
+        """Loads both models in the background - idempotent, safe to call
+        every time the mic button is clicked (only actually does work the
+        first time). Deliberately NOT called from __init__ - see the class
+        docstring note above about passive-by-default."""
+        if self._activated or self._activating:
+            return
+        self._activating = True
+        self.activatingChanged.emit(True)
+        threading.Thread(target=self._activate_now, daemon=True).start()
+
+    def _activate_now(self) -> None:
         try:
             self._whisper = WhisperModel(self._whisper_model_size, device="cpu", compute_type="int8")
         except Exception:  # noqa: BLE001
@@ -102,10 +122,23 @@ class VoiceEngine(QObject):
                 self._piper = PiperVoice.load(str(PIPER_VOICE_PATH))
         except Exception:  # noqa: BLE001
             pass  # speak() below handles _piper still being None
+        self._activated = True
+        self._activating = False
+        self.activatingChanged.emit(False)
+        if self._start_recording_once_ready:
+            self._start_recording_once_ready = False
+            self.startRecording()
 
     @Slot()
     def startRecording(self) -> None:
         if self._recording:
+            return
+        if not self._activated:
+            # First-ever use: kick off loading and record the intent to
+            # start listening the moment it's ready, rather than making
+            # the user click twice (once to "wake it up", again to talk).
+            self._start_recording_once_ready = True
+            self.activate()
             return
         self._frames = []
         self._recording = True

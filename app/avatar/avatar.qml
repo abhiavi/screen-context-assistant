@@ -28,6 +28,7 @@ Window {
     property bool capturePaused: false
     property bool recording: false
     property bool speaking: false
+    property bool voiceActivating: false  // models loading, first mic click only
     property bool answerIsFromVoice: false  // set true only by the mic path, so TTS
                                              // only speaks answers to voice-asked
                                              // questions, never typed ones
@@ -255,6 +256,7 @@ Window {
         target: voice
         function onRecordingChanged(isRecording) { root.recording = isRecording }
         function onSpeakingChanged(isSpeaking) { root.speaking = isSpeaking }
+        function onActivatingChanged(isActivating) { root.voiceActivating = isActivating }
         function onTranscriptionReady(text) {
             root.answerIsFromVoice = true
             collapseTimer.restart()
@@ -318,19 +320,23 @@ Window {
             color: (root.recording || root.speaking) ? "#e0433b" : Qt.rgba(1, 1, 1, 0.12)
             Behavior on color { ColorAnimation { duration: 150 } }
             SequentialAnimation on opacity {
-                running: root.recording || root.speaking
+                running: root.recording || root.speaking || root.voiceActivating
                 loops: Animation.Infinite
                 NumberAnimation { to: 0.5; duration: 500 }
                 NumberAnimation { to: 1.0; duration: 500 }
             }
             Text {
                 anchors.centerIn: parent
-                text: root.speaking ? "■" : "●"  // square = stop, dot standing in for a mic icon
+                // square = stop speaking, hourglass = warming up (first use
+                // only - loads the STT/TTS models, passive until this
+                // point), dot standing in for a mic icon otherwise
+                text: root.speaking ? "■" : (root.voiceActivating ? "⏳" : "●")
                 color: "white"
-                font.pixelSize: 13
+                font.pixelSize: root.voiceActivating ? 12 : 13
             }
             MouseArea {
                 anchors.fill: parent
+                enabled: !root.voiceActivating
                 onClicked: {
                     if (root.speaking) {
                         voice.stopSpeaking()
@@ -338,7 +344,7 @@ Window {
                         voice.stopRecording()
                     } else {
                         root.answerIsFromVoice = false  // reset from any previous failed attempt
-                        voice.startRecording()
+                        voice.startRecording()  // activates voice on first-ever use, then records
                     }
                 }
             }
@@ -352,7 +358,7 @@ Window {
             anchors.leftMargin: 8
             anchors.rightMargin: 6
             height: 34
-            placeholderText: root.recording ? "Listening..." : (root.speaking ? "Speaking... (click to stop)" : "Ask me anything about your recent activity...")
+            placeholderText: root.recording ? "Listening..." : (root.speaking ? "Speaking... (click to stop)" : (root.voiceActivating ? "Warming up voice..." : "Ask me anything about your recent activity..."))
             placeholderTextColor: Qt.rgba(1, 1, 1, 0.4)
             color: "#f5f3fa"
             font.pixelSize: 13
