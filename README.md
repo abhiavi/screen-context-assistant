@@ -340,6 +340,13 @@ when this was built (2026-09-09) — the install script pulls them via pacman
 for reproducibility on a fresh machine. The avatar reuses the capture
 agent's `--system-site-packages` venv (no separate one).
 
+**"Screen Context Assistant" shows up in the KDE application menu**
+(`deploy/screen-context-avatar-launcher.desktop`, installed alongside the
+systemd unit) — click it to start the avatar if you've closed it (the new
+close button, or `systemctl --user stop`). Runs `systemctl --user start`
+under the hood rather than invoking Python directly, so it stays
+systemd-managed either way.
+
 **Starts small, collapsed** (72px, no ask bar) so it doesn't take up screen
 space upfront — the **first click** on it just expands it to full size
 (240px) and reveals the ask bar; a proactive idle-return recall or a
