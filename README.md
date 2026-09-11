@@ -350,6 +350,14 @@ arbitrary x/y, and `QMargins` isn't a QML-constructible value type — so
 per the plan's own suggested fallback, this degrades to **edge-docked with
 corner-cycling** rather than pixel-level dragging.
 
+**Minimize/close controls** (2026-09-11): hand-drawn top-right of the
+window once expanded — no OS-drawn title bar exists on a frameless
+layer-shell surface. Minimize collapses back to the small icon; close
+(`Qt.quit()`) exits cleanly, so the systemd unit's `Restart=on-failure`
+correctly does not respawn it. The mic button (voice loop, below) doubles
+as a **stop** control while TTS is speaking — the mic can't usefully
+record while the avatar is talking over it anyway.
+
 **Choosing an avatar**: three characters are bundled today — `haru`
 (default), `mao`, and `natori` (the most dynamic: 8 action motions vs. the
 others' 1-2), all Live2D's own official free sample models (see
