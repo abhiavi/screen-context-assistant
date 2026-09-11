@@ -53,8 +53,20 @@ cp deploy/screen-context-avatar.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now screen-context-avatar.service
 
+echo "== installing app launcher (shows up in the KDE application menu) =="
+# Unlike deploy/screen-context-capture.desktop.template, this one is a
+# plain file (no __PYTHON_EXEC__ substitution needed - Exec is a static
+# systemctl call, not a direct python invocation) and NoDisplay is
+# deliberately omitted so it actually shows up, unlike the capture agent's
+# .desktop file (which exists purely for KWin's screenshot-permission
+# matching, not to be clicked).
+mkdir -p ~/.local/share/applications
+cp deploy/screen-context-avatar-launcher.desktop ~/.local/share/applications/
+update-desktop-database ~/.local/share/applications 2>/dev/null || true
+
 echo "== status =="
 systemctl --user status screen-context-avatar.service --no-pager || true
 echo
+echo "\"Screen Context Assistant\" is now in the KDE application menu - click it to start the avatar (it's already running if you just ran this script, but this is the click-to-launch path if you close it later)."
 echo "Left-click the avatar to expand/recall; Ctrl+click to move it to the next corner."
 echo "Edit ~/.config/screen-context-assistant/avatar.json to tune idle threshold / vault-write interval."
