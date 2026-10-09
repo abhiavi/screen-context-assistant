@@ -249,7 +249,7 @@ was renamed to `MCPServer` with a different import path,
 `mcp.server.mcpserver`). To connect from another Claude Code session on
 the mesh:
 ```bash
-claude mcp add --transport http screen-context http://100.96.7.56:8090/mcp
+claude mcp add --transport http screen-context http://${BACKEND_HOST}:8090/mcp
 ```
 Verified live with the real MCP Python client (protocol handshake +
 `list_tools` + `call_tool`), not just an HTTP smoke test.

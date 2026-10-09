@@ -37,7 +37,7 @@ CONFIG_PATH = Path.home() / ".config" / "screen-context-assistant" / "avatar.jso
 PAUSE_FLAG_PATH = Path.home() / ".config" / "screen-context-assistant" / "paused"
 
 DEFAULT_CONFIG = {
-    "backend_base_url": "http://100.96.7.56:8089",
+    "backend_base_url": "http://${BACKEND_HOST}:8089",
     "idle_poll_seconds": 5,
     "idle_threshold_seconds": 300,
     # Minimum gap between proactive ("welcome back") recalls, regardless of

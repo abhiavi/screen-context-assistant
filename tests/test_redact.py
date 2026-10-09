@@ -16,7 +16,7 @@ SECRET_SAMPLES = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogus1234567890abcdefghijklmnopqrstuvwx user@host",
     # CLI-flag-style secrets (2026-09-10 live leak: sshpass -p 'X' sailed
     # through every other pattern - short numeric password, no '='/':').
-    "sshpass -p '1991984' ssh root@100.116.78.21",
+    "sshpass -p '1991984' ssh root@${PVE_HOST}",
     "mysqldump --password=hunter2hunter2 -u admin mydb",
     "curl --passwd Sup3rSecret123 https://api.example.com",
     "git clone https://alice:hunter2hunter2@github.com/org/private-repo.git",

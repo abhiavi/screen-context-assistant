@@ -4,7 +4,7 @@ Reviewer note: this doc is written for the **Antigravity (AGY) session doing the
 
 ## 0. Infra-review resolutions (READ FIRST — these are decided, do not re-open)
 
-1. **AI gateway is `adraca-azure-01:4000`.** NOT adraca-pve. There is a *superseded/zombie* LiteLLM still running on `pve:4000` — **do not route any model calls there.** Fallback gateway is `adraca-oracle-01:4000`. All vision/embedding/RAG calls go to `http://100.125.158.117:4000/v1`.
+1. **AI gateway is `adraca-azure-01:4000`.** NOT adraca-pve. There is a *superseded/zombie* LiteLLM still running on `pve:4000` — **do not route any model calls there.** Fallback gateway is `adraca-oracle-01:4000`. All vision/embedding/RAG calls go to `http://${GATEWAY_HOST}:4000/v1`.
 2. **Build + run on adraca-aws-01** (idle: 32 vCPU, ~59 GiB free, 184 GB disk, already on the mesh). No fresh cloud VM. Do **not** put load on azure-01 (disk-tight) or mini (SOT + Iron Rule).
 3. **Qdrant + Postgres for this project run locally on aws-01** — a *separate* Qdrant instance, NOT azure-01's shared Qdrant (which holds `india_open_data` and is on the disk-tight box). This isolation is mandatory.
 4. **Privacy is a TRANSMISSION boundary, not just a retention one** (see §5 — this is the biggest change from earlier drafts).

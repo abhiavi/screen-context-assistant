@@ -60,7 +60,7 @@ KDOTOOL_TIMEOUT = 3.0
 
 @dataclass
 class CaptureConfig:
-    ingest_base_url: str  # e.g. http://100.96.7.56:8088
+    ingest_base_url: str  # e.g. http://${BACKEND_HOST}:8088
     host_name: str  # "desktop" | "laptop"
     activity_track_map: dict[str, str]  # KDE Activity id -> track_id
     sensitive_tracks: set[str]  # track_ids to flag sensitive=True (fully local, see plan §5)

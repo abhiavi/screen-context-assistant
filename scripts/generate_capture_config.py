@@ -22,7 +22,7 @@ ACTIVITY_MANAGER_PATH = "/ActivityManager/Activities"
 ACTIVITY_MANAGER_IFACE = "org.kde.ActivityManager.Activities"
 
 CONFIG_PATH = Path.home() / ".config" / "screen-context-assistant" / "capture.json"
-DEFAULT_INGEST_URL = "http://100.96.7.56:8088"
+DEFAULT_INGEST_URL = "http://${BACKEND_HOST}:8088"
 
 
 def slugify(name: str) -> str:
